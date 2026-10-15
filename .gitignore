@@ -40,3 +40,6 @@ __pycache__/
 .idea/
 Thumbs.db
 desktop.ini
+
+# 一次性临时文件（诊断输出、临时提交信息等），不要提交
+_tmp_*
