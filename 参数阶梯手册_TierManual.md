@@ -79,11 +79,11 @@
 
 | 你的显存 | 推荐档位 | 命令 | 说明 |
 |---|---|---|---|
-| 无 N 卡 / ≤3 G | **T1 实用档** 16K | `启动大模型.bat start 1` | 兜底，任何机器可跑 |
-| 4 G | **T3 超长档** 32K | `启动大模型.bat start 3` | 3~4 G 卡的现实上限 |
-| **8 G（主要目标）** | **T4 长上下文档** 64K | `启动大模型.bat start 4` | 估测 ≈40 t/s |
-| 12 G | **T5 超大档** 96K | `启动大模型.bat start 5` | 估测 50~60 t/s（未实测） |
-| 16 G | **T6 极限档** 128K | `启动大模型.bat start 6` | 估测 70~80 t/s（未实测） |
+| 无 N 卡 / ≤3 G | **T1 实用档** 16K | `启动大模型_StartModel.bat start 1` | 兜底，任何机器可跑 |
+| 4 G | **T3 超长档** 32K | `启动大模型_StartModel.bat start 3` | 3~4 G 卡的现实上限 |
+| **8 G（主要目标）** | **T4 长上下文档** 64K | `启动大模型_StartModel.bat start 4` | 估测 ≈40 t/s |
+| 12 G | **T5 超大档** 96K | `启动大模型_StartModel.bat start 5` | 估测 50~60 t/s（未实测） |
+| 16 G | **T6 极限档** 128K | `启动大模型_StartModel.bat start 6` | 估测 70~80 t/s（未实测） |
 
 > 档位编号越大上下文越长。**显存越大，能放到显存里的「专家层」越多、速度越高**（见 §2）。
 > 96K / 128K 需要 12 / 16 G 显存，本机（3 G）跑不动，只把档位留出、不提供实测值。
@@ -162,9 +162,9 @@ KV ≈ 上下文 token 数 ÷ 50（MiB，f16）；用 q8_0 减半
 
 ```bat
 :: 命令行临时加一个 nogpu（不改文件，适合做对比）
-启动大模型.bat start 2 nothink nogpu
+启动大模型_StartModel.bat start 2 nothink nogpu
 
-:: 把 启动大模型.bat 顶部的 GPU_MODE 改成 off（长期关闭）
+:: 把 启动大模型_StartModel.bat 顶部的 GPU_MODE 改成 off（长期关闭）
 set "GPU_MODE=off"
 ```
 
@@ -201,7 +201,7 @@ set "GPU_MODE=off"
 - **运行库**：① 复用本机已有的（跑过 PyTorch 的机器常有，把目录加进 `PATH` 即可，**Windows 的 DLL 搜索顺序含 PATH，不必复制文件**）；② `pip download nvidia-cublas-cu12 nvidia-cuda-runtime-cu12` 取 3 个 DLL；③ 装 CUDA Toolkit 12.8（可只勾 Runtime）。**必须是 12.x** —— CUDA 13 起已移除对 Pascal 等旧架构的支持。
 - **后端**：① 下载 llama.cpp 官方 Windows CUDA 预编译包取 `ggml-cuda.dll`；② **本机自编（推荐）**：`_维护脚本\build-cuda-backend.bat 61`（61=Pascal，产物约 32 MB）。自编的后端 API 版本与 `llama-server` **天然一致**，最稳。
 
-放置后跑 `环境检查.bat` 第 11 项「GPU 支持自检」，会逐条确认并做一次**后端实测**（只有后端自己列得出设备，才算真能用）。
+放置后跑 `环境检查_EnvCheck.bat` 第 11 项「GPU 支持自检」，会逐条确认并做一次**后端实测**（只有后端自己列得出设备，才算真能用）。
 
 > **发行包不含任何 CUDA 二进制**，只提供接口、自检与自编脚本。
 
@@ -240,7 +240,7 @@ set "GPU_MODE=off"
 
 1. **服务是 HTTP 不是 HTTPS**：构建时未找到 OpenSSL。本地 127.0.0.1 无影响；局域网访问已配 API Key 鉴权。
 2. **首次加载慢**：21 GB 模型从磁盘调入需 30~90 秒（SSD），属正常。
-3. **默认关闭思考链**：要开推理链用 `启动大模型.bat start 2 think`；关掉能省约 98% 的输出 token（简单问题上是 0.3 秒 vs 15 秒的差距）。当前状态用 `status` 查看。
+3. **默认关闭思考链**：要开推理链用 `启动大模型_StartModel.bat start 2 think`；关掉能省约 98% 的输出 token（简单问题上是 0.3 秒 vs 15 秒的差距）。当前状态用 `status` 查看。
 4. **BF16 未启用**：MSVC 不提供 BF16 intrinsics，上游在 MSVC 下跳过含 BF16 的变体；对 Q4 量化推理影响很小（关键收益 VNNI / VBMI 已启用）。
 5. **变体择优的上游 bug**：上游对 VBMI 漏定义了参与评分的 `GGML_AVX512_VBMI`，导致 icelake 与 cascadelake 同分、按字母序命中不含 VBMI 的 cascadelake。已把 `ggml-cpu-cascadelake.dll` 改名为 `.disabled`。**重装/重编译后需重做。**
 6. **模型原生 `context_length = 262144`**：若不显式设 `--ctx-size` 会按 262144 分配 KV，**极易撑爆内存**。所有脚本都已显式限制到档位值。

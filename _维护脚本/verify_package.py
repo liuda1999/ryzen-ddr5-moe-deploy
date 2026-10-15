@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""按 分发包清单.txt 校验当前目录的文件是否完整（精确字节数 + SHA256）。
+"""按 分发包清单_PackageManifest.txt 校验当前目录的文件是否完整（精确字节数 + SHA256）。
 
 在目标机上运行即可确认拷贝过程有没有丢文件或损坏：
     python _维护脚本\\verify_package.py
@@ -18,7 +18,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-MANIFEST = os.path.join(ROOT, '分发包清单.txt')
+MANIFEST = os.path.join(ROOT, '分发包清单_PackageManifest.txt')
 
 
 def sha256(path, chunk=1 << 20):
@@ -52,7 +52,7 @@ def parse_manifest(path):
 def main():
     if not os.path.exists(MANIFEST):
         print('找不到清单文件：%s' % MANIFEST)
-        print('请把 分发包清单.txt 一起拷贝过来，或先在源机器上运行 make_manifest.py。')
+        print('请把 分发包清单_PackageManifest.txt 一起拷贝过来，或先在源机器上运行 make_manifest.py。')
         return 1
 
     rows = parse_manifest(MANIFEST)

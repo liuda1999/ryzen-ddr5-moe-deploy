@@ -1,10 +1,10 @@
 @echo off
-chcp 936 >nul 2>nul
+chcp 936 <nul >nul 2>nul
 setlocal EnableExtensions
 title ¿ª·Å¾ÖÓòÍø·ÃÎÊ¶Ë¿Ú ĞèÒª¹ÜÀíÔ±È¨ÏŞ
 
 REM ============================================================
-REM   ¿ª·Å¾ÖÓòÍø¶Ë¿Ú.bat
+REM   ¿ª·Å¾ÖÓòÍø¶Ë¿Ú_OpenLanPort.bat
 REM   ×÷ÓÃ£ºÔÚ Windows ·À»ğÇ½Àï·ÅĞĞ/È¡Ïû·ÅĞĞ llama.cpp ·şÎñ¶Ë¿Ú£¬
 REM         ÈÃ¾ÖÓòÍøÄÚÆäËüÉè±¸ÄÜÁ¬ÉÏ±¾»úµÄ´óÄ£ĞÍ·şÎñ¡£
 REM   ÓÃ·¨£ºÓÒ¼ü±¾ÎÄ¼ş -> ÒÔ¹ÜÀíÔ±Éí·İÔËĞĞ
@@ -55,7 +55,7 @@ if errorlevel 1 (
   echo.
   echo   ÌáĞÑ/NOTE£º·ÅĞĞ·À»ğÇ½Ö»ÊÇµÚÒ»²½ / the firewall rule is only step one. ·şÎñ±¾Éí»¹±ØĞë°ó¶¨ / the service must also bind 0.0.0.0
   echo         ²¢ÇÒÇëÇóÒªĞ¯´ø / and requests must carry the key from api-key.txt£¬·ñÔòÈÔÈ»ÎŞ·¨µ÷ÓÃ / otherwise calls fail.
-  echo         ÍêÕû×Ô¼ìÇëÔËĞĞ / for a full check run£º»·¾³¼ì²é.bat
+  echo         ÍêÕû×Ô¼ìÇëÔËĞĞ / for a full check run£º»·¾³¼ì²é_EnvCheck.bat
 )
 echo.
 pause
@@ -91,7 +91,7 @@ echo   ±¾½Å±¾ÒªĞŞ¸Ä Windows ·À»ğÇ½¹æÔò / this script edits firewall rules£¬±ØĞëÒ
 echo.
 echo   ²Ù×÷·½·¨ / How to do it£º
 echo     1. ¹Ø±Õ±¾´°¿Ú / close this window
-echo     2. ÓÒ¼ü / right-click ¿ª·Å¾ÖÓòÍø¶Ë¿Ú.bat
+echo     2. ÓÒ¼ü / right-click ¿ª·Å¾ÖÓòÍø¶Ë¿Ú_OpenLanPort.bat
 echo     3. Ñ¡Ôñ / choose "ÒÔ¹ÜÀíÔ±Éí·İÔËĞĞ" / Run as administrator
 echo.
 pause

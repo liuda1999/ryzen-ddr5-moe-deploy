@@ -1,15 +1,17 @@
 =====================================================================
  llama.cpp 本地部署交付摘要（Windows 原生 / 消费级 N 卡显存混合卸载，纯 CPU 兜底）
  核心目的：让本地消费级显卡（N 卡，主目标 8 GB 显存，最低验证 3 GB）跑动 30B~35B MoE 大模型
+ 关键做法：显存与内存「混合」承担（非专家权重上显存、占大头的专家权重留内存），
+           两边协同比纯 CPU 明显更快；没有独显或显存不够时纯 CPU 兜底照样能跑
  优先级：  实用性与 Token 生成速度优先；设计目标：尽可能达到 25 token/s
-先看这个 -> 使用说明.md（面向使用者的安装、依赖、路径与排查说明）
+先看这个 -> 使用说明_UserGuide.md（面向使用者的安装、依赖、路径与排查说明）
  重点：AVX-512 完整启用（含 VNNI / VBMI）
 =====================================================================
 源码：ggml-org/llama.cpp（官方仓库 master，版本 0.6.0-dev）
 硬件：AMD Ryzen 9 9950X（Zen 5，16 物理核 / 32 逻辑核）
       内存：64 GB DDR5-6000（2×32 GB 双通道，EXPO 已开，实际运行 6000 MT/s）
       <-- 本项目核心是「Ryzen + DDR5 内存带宽」而非某个模型，详见 README.md 第二章
-      <-- 换到 Intel 平台请先看《参数阶梯手册.md》的"平台声明"：
+      <-- 换到 Intel 平台请先看《参数阶梯手册_TierManual.md》的"平台声明"：
           无需重新编译，但档位速度表与线程数需按新 CPU 重定。
 日期：2026-10-14（AVX-512 专项复核后更新）
 
@@ -127,19 +129,19 @@
       64K 及以上在小显存卡上会自动给 KV 加 q8_0 量化。
     有 N 卡时默认启用显存混合卸载；无 N 卡按纯 CPU（约 15.6 t/s）。
     脚本已内置 THREADS=24，改 CTX 即可换档（现场在 :APPLY_TIER 段）。
-    全部档位数据与取舍：E:\llm-cpp\参数阶梯手册.md
+    全部档位数据与取舍：E:\llm-cpp\参数阶梯手册_TierManual.md
 
   快捷开关（推荐，工作区根目录，全中文命名）：
-    E:\llm-cpp\启动大模型.bat              二合一开关：未运行则启动，已运行则关闭
+    E:\llm-cpp\启动大模型_StartModel.bat              二合一开关：未运行则启动，已运行则关闭
                                         （双击即可，按提示选档位，默认实用档）
-    E:\llm-cpp\启动大模型.bat start 2      直接以实用档（16K/24 线程）启动
-    E:\llm-cpp\启动大模型.bat stop         关闭服务并释放内存
-    E:\llm-cpp\启动大模型.bat restart 3    以长文档档（24K/24 线程）重启
-    E:\llm-cpp\启动大模型.bat status       只看状态（PID / 内存 / 档位 / 地址）
-    E:\llm-cpp\启动大模型.bat check        只做环境与安全检查
+    E:\llm-cpp\启动大模型_StartModel.bat start 2      直接以实用档（16K/24 线程）启动
+    E:\llm-cpp\启动大模型_StartModel.bat stop         关闭服务并释放内存
+    E:\llm-cpp\启动大模型_StartModel.bat restart 3    以长文档档（24K/24 线程）重启
+    E:\llm-cpp\启动大模型_StartModel.bat status       只看状态（PID / 内存 / 档位 / 地址）
+    E:\llm-cpp\启动大模型_StartModel.bat check        只做环境与安全检查
 
-    E:\llm-cpp\环境检查.bat                全量体检，并给出各档位内存可行性
-    E:\llm-cpp\参数阶梯手册.md             参数阶梯手册（全部实测档位，改配置前先看它）
+    E:\llm-cpp\环境检查_EnvCheck.bat                全量体检，并给出各档位内存可行性
+    E:\llm-cpp\参数阶梯手册_TierManual.md             参数阶梯手册（全部实测档位，改配置前先看它）
 
   启动脚本内置的检查（出现 [失败] 会直接阻止启动）：
     1  可执行程序 llama-server.exe / llama-cli.exe
@@ -157,14 +159,14 @@
 
   深度思考（推理链）开关 —— 除档位外对响应速度影响最大的开关：
     默认关闭。关闭时直接作答；开启时先输出一段思考内容（reasoning_content）。
-    命令行：启动大模型.bat start 2 nothink   关闭（默认）
-            启动大模型.bat start 2 think     开启
+    命令行：启动大模型_StartModel.bat start 2 nothink   关闭（默认）
+            启动大模型_StartModel.bat start 2 think     开启
     交互模式选完档位后会询问一次，直接回车 = 关闭。
     同一问题实测（17×23=？）：
       关闭 -> 4 token、约 0.3 秒出结果
       开启 -> 241 token、约 15 秒（思考过程 492 字符）
       两者答案一致，差别只在要不要先把推理写出来，关闭可省约 98% 输出 token。
-    当前生效的模式可用 启动大模型.bat status 查看（也记录在 logs\server.pid 末位）。
+    当前生效的模式可用 启动大模型_StartModel.bat status 查看（也记录在 logs\server.pid 末位）。
 
   服务运行方式：无窗口静默后台运行。
     启动后不会出现任何服务窗口（任务栏也看不到），进程完全独立于脚本窗口，
@@ -221,11 +223,11 @@
       - 前置工具：CUDA Toolkit 12.8 + MSVC 14.44；不依赖 vcvars（本环境会被拦），
         脚本里手工拼 PATH/INCLUDE/LIB，SDK 的 bin 目录必须在 PATH 里（CMake 要用 rc.exe）
       - 注意脚本必须是纯 ASCII + CRLF，否则 cmd 按 GBK 解析会直接崩
-    环境检查.bat 第 11 项「GPU 支持自检」会逐条说明缺什么、怎么补。
-    原理、显存预算与旧卡注意事项见 参数阶梯手册.md 的「GPU 混合卸载」章节。
+    环境检查_EnvCheck.bat 第 11 项「GPU 支持自检」会逐条说明缺什么、怎么补。
+    原理、显存预算与旧卡注意事项见 参数阶梯手册_TierManual.md 的「GPU 混合卸载」章节。
 
   静默模式（供计划任务 / 开机自启调用：不等待按键、不打开浏览器）：
-    E:\llm-cpp\启动大模型.bat start 2 quiet
+    E:\llm-cpp\启动大模型_StartModel.bat start 2 quiet
 
   启动成功的判定标准（避免假成功）：
     脚本不是"端口一监听"就报成功，而是轮询 http://127.0.0.1:35035/health，
@@ -244,8 +246,8 @@
       Python(openai 库)：
         from openai import OpenAI
         c = OpenAI(base_url="http://192.168.0.100:35035/v1", api_key="<密钥>")
-    防火墙：首次开放需以管理员身份运行 开放局域网端口.bat（选 1 放行 TCP 35035）。
-           只想本机可用时，把 启动大模型.bat 里的 HOST 改回 127.0.0.1 并重启。
+    防火墙：首次开放需以管理员身份运行 开放局域网端口_OpenLanPort.bat（选 1 放行 TCP 35035）。
+           只想本机可用时，把 启动大模型_StartModel.bat 里的 HOST 改回 127.0.0.1 并重启。
 
   密钥机制与安装路径（实测结论）：
     api-key.txt 支持多行，每行一个密钥（井号开头是注释），脚本会把它们用逗号
@@ -255,7 +257,7 @@
     建议：虽已验证中文路径可用，仍推荐装到纯英文路径，避免个别工具的编码坑。
 
   重新编译（你本机，Visual Studio 生成器）：
-    双击  E:\llm-cpp\重新编译.bat
+    双击  E:\llm-cpp\重新编译_Rebuild.bat
     产物  E:\llm-cpp\llama.cpp\build-vs\bin\Release\
 
   旧版英文脚本已归档：E:\llm-cpp\_旧脚本备份\（llm.bat / check-env.bat / run-llama-*.bat）
@@ -317,7 +319,7 @@
 6) 上下文 × 线程 矩阵基准（8 组，2026-10-15）【历史存档：纯 CPU 早期基线】
 =====================================================================
   ！注意：本节是早期【纯 CPU、带 MTP 模型】的基线，已被后续改造取代。
-    当前数据（无 MTP 模型 + 默认 GPU 混合卸载）见 参数阶梯手册.md：
+    当前数据（无 MTP 模型 + 默认 GPU 混合卸载）见 参数阶梯手册_TierManual.md：
     短对话约 24 t/s、填满 32K 约 20 t/s。以下仅供参考线程/上下文趋势。
   目的：在"生成体感可接受"的区间内，找出每秒生成 token 最多的组合。
   方法：每次以指定 ctx / 线程重启 llama-server，把上下文填满到

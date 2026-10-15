@@ -130,7 +130,7 @@ def main():
         http_json("/health", key=key, timeout=6)
         print("服务在线：%s" % BASE)
     except Exception as e:
-        sys.exit("服务未运行或无法访问（%s）。先双击 启动大模型.bat 启动。" % e)
+        sys.exit("服务未运行或无法访问（%s）。先双击 启动大模型_StartModel.bat 启动。" % e)
 
     short = measure("短提示（约 30 token，最能反映纯生成速度）", "用中文写一段 200 字的短文，谈谈阅读的价值。", key)
     mid = measure("约 8K 提示（长上下文下的 prefill 与生成）", make_prompt(20000, "mid"), key)

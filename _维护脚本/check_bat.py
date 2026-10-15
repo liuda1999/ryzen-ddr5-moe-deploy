@@ -9,9 +9,14 @@
      —— %VAR% 在 if ( ) 块内展开时，值里出现 ) 会提前闭合块，
         实测报错「此时不应有 experts」。这类 bug 只有运行时才暴露，
         所以这里做静态扫描：找出「块内被 echo 的变量」∩「取值含半角括号的变量」。
-  2. 行尾残留空格导致的多余空格（可选提示）
+  2. echo 的正文里出现未转义的 `<` `>` `|` `&`
+     —— 它们是 cmd 的重定向/管道符，会把整条语句解析坏。
+        实测报错「命令语法不正确。」，而且**整个批处理会就此中止**
+        （踩过：英文文案里写了 `Bearer <key above>`，导致 SHOW_ADDR 一崩、
+         运行中的菜单再也显示不出来）。
   3. GBK 编码检查：任何无法用 GBK 编码的字符（生成的 bat 是 GBK+CRLF）
   4. 括号总体平衡（忽略 REM 行，注释里的括号不算数）
+  5. 两个脚本 chcp 必须带 <nul（否则会读走并清空标准输入）
 """
 import io
 import os
@@ -20,10 +25,12 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-BATS = ["启动大模型.bat", "环境检查.bat", "开放局域网端口.bat"]
+BATS = ["启动大模型_StartModel.bat", "环境检查_EnvCheck.bat", "开放局域网端口_OpenLanPort.bat"]
 GEN = ["gen_toggle.py", "gen_check.py", "gen_firewall.py"]
 
 han_paren = re.compile(r"[()]")
+# echo 行尾合法的重定向（>nul / 2>nul / > "file" / 2>&1 ...），比对正文时先剥掉
+TAIL_REDIR = re.compile(r"(?:\s+\d?>\s*(?:\"[^\"]*\"|\S+))+\s*$")
 
 
 def load_bat(name):
@@ -52,6 +59,32 @@ def check_balance(name, text):
     if d == 0 and dmin >= 0:
         return []
     return ["%s: 括号不平衡（终值 %d，最低 %d）" % (name, d, dmin)]
+
+
+def check_redir(name, text):
+    """echo 正文里未转义的 < > 会把语句解析坏（并在批处理里直接中止）。"""
+    bad = []
+    for i, ln in enumerate(text.split("\r\n"), 1):
+        s = ln.strip()
+        if not (s.lower().startswith("echo") or s.lower().startswith("set /p")):
+            continue
+        if s.startswith("REM") or s.startswith("::"):
+            continue
+        body = TAIL_REDIR.sub("", s)
+        probe = body.replace("^<", "").replace("^>", "")
+        if "<" in probe or ">" in probe:
+            bad.append("%s 第 %d 行：echo 正文里有未转义的 < >（要用 ^< ^>）：%s"
+                       % (name, i, body[:70]))
+    return bad
+
+
+def check_chcp(name, text):
+    bad = []
+    for i, ln in enumerate(text.split("\r\n"), 1):
+        s = ln.strip().lower()
+        if s.startswith("chcp") and "<nul" not in s:
+            bad.append("%s 第 %d 行：chcp 没带 <nul，会读走并清空标准输入：%s" % (name, i, ln.strip()))
+    return bad
 
 
 def collect_var_values():
@@ -96,6 +129,8 @@ def main():
             continue
         problems += check_gbk(name, raw)
         problems += check_balance(name, text)
+        problems += check_redir(name, text)
+        problems += check_chcp(name, text)
         for var, line in sorted(block_echoed_vars(text).items()):
             if var in vals and any(han_paren.search(x) for x in vals[var]):
                 problems.append(
@@ -107,7 +142,8 @@ def main():
         for p in problems:
             print("  -", p)
         sys.exit(1)
-    print("检查通过：GBK 编码正常、括号平衡、块内无括号变量展开风险。")
+    print("检查通过：GBK 编码正常、括号平衡、echo 正文无未转义的 < >、chcp 都带 <nul、"
+          "块内无括号变量展开风险。")
 
 
 if __name__ == "__main__":

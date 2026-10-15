@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
-"""生成"开放局域网端口.bat"（需管理员权限，GBK + CRLF）。"""
+"""生成"开放局域网端口_OpenLanPort.bat"（需管理员权限，GBK + CRLF）。"""
 import io
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-OUT = os.path.join(ROOT, "开放局域网端口.bat")
+OUT = os.path.join(ROOT, "开放局域网端口_OpenLanPort.bat")
 
 BAT = r'''@echo off
-chcp 936 >nul 2>nul
+chcp 936 <nul >nul 2>nul
 setlocal EnableExtensions
 title 开放局域网访问端口 需要管理员权限
 
 REM ============================================================
-REM   开放局域网端口.bat
+REM   开放局域网端口_OpenLanPort.bat
 REM   作用：在 Windows 防火墙里放行/取消放行 llama.cpp 服务端口，
 REM         让局域网内其它设备能连上本机的大模型服务。
 REM   用法：右键本文件 -> 以管理员身份运行
@@ -64,7 +64,7 @@ if errorlevel 1 (
   echo.
   echo   提醒/NOTE：放行防火墙只是第一步 / the firewall rule is only step one. 服务本身还必须绑定 / the service must also bind 0.0.0.0
   echo         并且请求要携带 / and requests must carry the key from api-key.txt，否则仍然无法调用 / otherwise calls fail.
-  echo         完整自检请运行 / for a full check run：环境检查.bat
+  echo         完整自检请运行 / for a full check run：环境检查_EnvCheck.bat
 )
 echo.
 pause
@@ -100,7 +100,7 @@ echo   本脚本要修改 Windows 防火墙规则 / this script edits firewall r
 echo.
 echo   操作方法 / How to do it：
 echo     1. 关闭本窗口 / close this window
-echo     2. 右键 / right-click 开放局域网端口.bat
+echo     2. 右键 / right-click 开放局域网端口_OpenLanPort.bat
 echo     3. 选择 / choose "以管理员身份运行" / Run as administrator
 echo.
 pause

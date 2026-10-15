@@ -37,17 +37,17 @@ ROOT = os.path.dirname(HERE)
 
 # 根目录：脚本 + 文档 + 实测数据
 ROOT_FILES = [
-    "启动大模型.bat",
-    "环境检查.bat",
-    "开放局域网端口.bat",
-    "重新编译.bat",
+    "启动大模型_StartModel.bat",
+    "环境检查_EnvCheck.bat",
+    "开放局域网端口_OpenLanPort.bat",
+    "重新编译_Rebuild.bat",
     "README.md",
     "LICENSE",
-    "使用说明.md",
-    "参数阶梯手册.md",
-    "部署说明.txt",
-    "验收报告.md",
-    "分发包清单.txt",
+    "使用说明_UserGuide.md",
+    "参数阶梯手册_TierManual.md",
+    "部署说明_DeployNotes.txt",
+    "验收报告_AcceptanceReport.md",
+    "分发包清单_PackageManifest.txt",
     "matrix_results.csv",
     "matrix_extra.csv",
 ]

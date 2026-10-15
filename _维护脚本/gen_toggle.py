@@ -5,7 +5,7 @@ import re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-OUT = os.path.join(ROOT, "启动大模型.bat")
+OUT = os.path.join(ROOT, "启动大模型_StartModel.bat")
 
 BAT = r'''@echo off
 REM 注意 <nul：chcp 改代码页时会读并清空输入缓冲，重定向/管道送 stdin
@@ -16,7 +16,7 @@ setlocal EnableExtensions
 title Qwen3.6-35B 本地大模型 一键开关
 
 REM ============================================================
-REM   启动大模型.bat  ——  二合一开关（启动 / 关闭 / 重启 / 状态）
+REM   启动大模型_StartModel.bat  ——  二合一开关（启动 / 关闭 / 重启 / 状态）
 REM
 REM   双击运行：
 REM     服务未运行  ->  先做环境与硬件检查，再检查模型：
@@ -25,18 +25,19 @@ REM                       已有模型  ->  跳过，直接按档位启动
 REM     服务已运行  ->  默认关闭服务（也可选择重启、打开网页、看日志）
 REM
 REM   命令行用法：
-REM     启动大模型.bat               交互模式（自动判断启动或关闭）
-REM     启动大模型.bat start  [1-6]  启动（档位可省，默认按显存推荐）
-REM     启动大模型.bat stop          关闭
-REM     启动大模型.bat restart [1-6] 重启
-REM     启动大模型.bat status        只看状态
-REM     启动大模型.bat check         只做环境与安全检查
+REM     启动大模型_StartModel.bat               交互模式（自动判断启动或关闭）
+REM     启动大模型_StartModel.bat start  [1-6]  启动（档位可省，默认按显存推荐）
+REM     启动大模型_StartModel.bat stop          关闭
+REM     启动大模型_StartModel.bat restart [1-6] 重启
+REM     启动大模型_StartModel.bat status        只看状态
+REM     启动大模型_StartModel.bat menu          服务在跑时打开管理菜单（重启/开网页/看日志）
+REM     启动大模型_StartModel.bat check         只做环境与安全检查
 REM
 REM   深度思考（推理链）：
 REM     默认关闭 —— 关闭后首个字更快出现、生成 token 更省。
 REM     交互模式下会在选完档位后询问；也可用命令行直接指定：
-REM       启动大模型.bat start 2 think     开启深度思考（回答更严谨，但更慢）
-REM       启动大模型.bat start 2 nothink   关闭深度思考（快）
+REM       启动大模型_StartModel.bat start 2 think     开启深度思考（回答更严谨，但更慢）
+REM       启动大模型_StartModel.bat start 2 nothink   关闭深度思考（快）
 REM
 REM   局域网访问：
 REM     服务默认绑定 0.0.0.0，局域网其它设备可访问 http://<本机IP>:35035，
@@ -52,11 +53,11 @@ REM     GPU 不可用时（没 N 卡 / 没后端 / 没 CUDA 运行库 / 显存�
 REM     退回纯 CPU，不会阻止启动 —— 所以默认开着是安全的，CPU 永远兜底。
 REM     关闭方式（三者其一）：
 REM       a) 把下面的 GPU_MODE 改成 off
-REM       b) 命令行加一个 nogpu 参数        —— 启动大模型.bat start 2 nogpu
+REM       b) 命令行加一个 nogpu 参数        —— 启动大模型_StartModel.bat start 2 nogpu
 REM       c) 想自己控层数：把 GPU_MODE 改成 manual，再填下面几个值
-REM     想临时试一次：启动大模型.bat start 2 gpu
-REM     缺后端 / 缺 CUDA 运行库请跑 环境检查.bat 的「GPU 支持自检」。
-REM     原理与显存预算详见：参数阶梯手册.md 的「GPU 混合卸载」章节。
+REM     想临时试一次：启动大模型_StartModel.bat start 2 gpu
+REM     缺后端 / 缺 CUDA 运行库请跑 环境检查_EnvCheck.bat 的「GPU 支持自检」。
+REM     原理与显存预算详见：参数阶梯手册_TierManual.md 的「GPU 混合卸载」章节。
 REM
 REM ============================================================
 REM   模型自动下载（只在「没有模型」时触发）
@@ -72,9 +73,9 @@ REM     手动下载 / 换模型：llama.cpp\models\下载模型.md
 REM ============================================================
 
 REM   可在任意位置追加 quiet 参数进入静默模式（计划任务 / 开机自启用）：
-REM     启动大模型.bat start 2 quiet
+REM     启动大模型_StartModel.bat start 2 quiet
 REM
-REM   档位与实测数据详见：参数阶梯手册.md
+REM   档位与实测数据详见：参数阶梯手册_TierManual.md
 REM ============================================================
 
 set "ROOT=%~dp0"
@@ -191,19 +192,34 @@ if /i "%~1"=="check"   goto :ENV_CHECK_ONLY
 if /i "%~1"=="start"   goto :ARG_START
 if /i "%~1"=="stop"    goto :ARG_STOP
 if /i "%~1"=="restart" goto :ARG_RESTART
+REM menu：服务在跑时想用「重启/开网页/看日志」菜单（无参数时是严格开关，直接关闭）
+if /i "%~1"=="menu"    goto :MENU_RUNNING
 if "%~1"==""           goto :MAIN
 echo [错误/ERROR] 未知参数：%~1 / unknown argument: %~1
 echo.
-echo 用法/USAGE：启动大模型.bat [start^|stop^|restart^|status^|check] [档位/tier 1-6]
+echo 用法/USAGE：启动大模型_StartModel.bat [start^|stop^|restart^|status^|check^|menu] [档位/tier 1-6]
 echo.
 pause
 exit /b 1
 
 REM ============================================================
 :MAIN
+REM 二合一开关（无参数时的行为）：
+REM   服务没在跑 → 走启动流程（环境检查 → 档位 → 启动）
+REM   服务正在跑 → 直接关闭，不弹菜单（这就是「再双击一次 = 关掉」）
+REM   想看「重启 / 打开网页 / 查看日志」菜单：启动大模型_StartModel.bat menu
 call :DETECT
-if defined SRV_PID goto :MENU_RUNNING
+if defined SRV_PID goto :TOGGLE_STOP
 goto :MENU_STOPPED
+
+REM ============================================================
+:TOGGLE_STOP
+REM 严格开关：这里必须「直接关」。加菜单会让双击两次的直觉失效。
+echo.
+echo [开关/TOGGLE] 检测到服务正在运行，直接关闭。/ service is running, stopping it now.
+echo                需要「重启 / 打开网页 / 查看日志」菜单请运行 / for the menu run:
+echo                    启动大模型_StartModel.bat menu
+goto :DO_STOP
 
 REM ============================================================
 :ARG_START
@@ -215,7 +231,7 @@ if not defined TIER (
 call :DETECT
 if defined SRV_PID (
   echo [提示/HINT] 服务已在运行（PID %SRV_PID%），无需重复启动。/ service already running, no need to start again
-  echo        再次运行本脚本即可关闭，或用/Run this script again to stop, or: 启动大模型.bat restart
+  echo        再次运行本脚本即可关闭，或用/Run this script again to stop, or: 启动大模型_StartModel.bat restart
   exit /b 0
 )
 goto :DO_START
@@ -276,7 +292,7 @@ echo   本机地址/LOCAL  http://127.0.0.1:%PORT%
 echo   API 地址/URL    http://127.0.0.1:%PORT%/v1/chat/completions
 if defined API_KEY (
   echo   访问密钥/APIKEY %API_KEY%
-  echo   调用方式/USE    请求头加 Authorization: Bearer 上面这串密钥 / send header: Authorization: Bearer <key above>
+  echo   调用方式/USE    请求头加 Authorization: Bearer 上面这串密钥 / send header: Authorization: Bearer ^<key above^>
 ) else (
   echo   访问密钥/APIKEY ^(未找到 %KEY_FILE%，局域网将无法通过鉴权^) / ^(key file missing, LAN calls will be rejected^)
 )
@@ -285,7 +301,7 @@ exit /b 0
 :STATUS_DOWN
 echo.
 echo   状态/STATUS：服务未运行（端口/port %PORT% 空闲/free） / service is not running
-echo   运行/RUN 启动大模型.bat 即可启动。/ run 启动大模型.bat to start
+echo   运行/RUN 启动大模型_StartModel.bat 即可启动。/ run 启动大模型_StartModel.bat to start
 echo.
 exit /b 0
 
@@ -396,7 +412,7 @@ echo   0   退出 / Exit
 echo ------------------------------------------------------------
 echo   说明/NOTE：短对话约 24 t/s，填满后随长度缓降 / short chat ~24 t/s, drops as context fills（32K 填满约 20、64K 填满约 12）.
 echo         无 N 卡时按纯 CPU 运行 / CPU-only when no NVIDIA GPU（约 15 t/s）. 档位按显存选/pick tier by VRAM：8G→4, 12G→5, 16G→6.
-echo         64K 及以上在 3G 卡上需 KV 量化 / 64K+ needs KV quantization on a 3G card（脚本会自动加/auto-applied）. 详见/see 参数阶梯手册.md
+echo         64K 及以上在 3G 卡上需 KV 量化 / 64K+ needs KV quantization on a 3G card（脚本会自动加/auto-applied）. 详见/see 参数阶梯手册_TierManual.md
 echo.
 set "TIER="
 set "TIER_DEF=1"
@@ -1233,7 +1249,7 @@ set "GPU_TOTAL_MIB=0"
 set "GPU_FREE_MIB=0"
 set "GPU_PROBE_NOTE="
 if not exist "%BIN_DIR%\ggml-cuda.dll" (
-  set "GPU_PROBE_NOTE=未找到 CUDA 后端 ggml-cuda.dll（见 环境检查.bat 第 11 项）"
+  set "GPU_PROBE_NOTE=未找到 CUDA 后端 ggml-cuda.dll（见 环境检查_EnvCheck.bat 第 11 项）"
   exit /b 0
 )
 REM stdout 与 stderr 都收：设备列表走 stdout，后端的告警走 stderr
@@ -1494,7 +1510,7 @@ if /i "%GPU_ARGS%"=="--n-gpu-layers 0" goto :SGA_NONE
 echo   GPU 参数/ARGS       %GPU_ARGS%
 exit /b 0
 :SGA_NONE
-echo   GPU 未生效，本次为纯 CPU 运行 / GPU not active, running CPU-only（原因见 环境检查.bat 第 11 项 / see item 11）
+echo   GPU 未生效，本次为纯 CPU 运行 / GPU not active, running CPU-only（原因见 环境检查_EnvCheck.bat 第 11 项 / see item 11）
 exit /b 0
 :SGA_SHOW
 set "GCLAUSE=%GCLAUSE:*load_tensors: =%"
@@ -1633,11 +1649,11 @@ REM 只可能是手动关了（命令行 nogpu，或把顶部 GPU_MODE 改成 of
 if /i not "%GPU_MODE%"=="off" goto :TGPU_REQ
 if not exist "%BIN_DIR%\ggml-cuda.dll" goto :TGPU_PLAIN
 echo         提示/HINT    已关闭 GPU / GPU off（GPU_MODE=off），本次按纯 CPU 运行 / running CPU-only
-echo                 想启用/to enable：启动大模型.bat start 2 gpu   或把顶部 GPU_MODE 改成 auto / or set GPU_MODE=auto
+echo                 想启用/to enable：启动大模型_StartModel.bat start 2 gpu   或把顶部 GPU_MODE 改成 auto / or set GPU_MODE=auto
 goto :TGPU_END
 :TGPU_PLAIN
 echo         提示/HINT    已关闭 GPU / GPU off（GPU_MODE=off），本次按纯 CPU 运行 / running CPU-only
-echo                 有 N 卡想加速 / have an NVIDIA card? 跑 环境检查.bat 看第 11 项 / see item 11
+echo                 有 N 卡想加速 / have an NVIDIA card? 跑 环境检查_EnvCheck.bat 看第 11 项 / see item 11
 goto :TGPU_END
 :TGPU_REQ
 call :GPU_PROBE
@@ -1647,7 +1663,7 @@ if "%GPU_AVAILABLE%"=="1" (
 ) else (
   echo         提示/HINT    未启用 GPU / GPU not used，本次按纯 CPU 运行 / CPU-only（默认兜底 / default fallback，不是错误 / not an error）
   echo                 %GPU_PROBE_NOTE%
-  echo                 排查/to diagnose：跑 环境检查.bat 看第 11 项 / see item 11
+  echo                 排查/to diagnose：跑 环境检查_EnvCheck.bat 看第 11 项 / see item 11
 )
 :TGPU_END
 exit /b 0

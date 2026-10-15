@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """生成分发包清单（精确字节数 + SHA256），用于分发前后的完整性校验。
 
-产物：项目根目录的 分发包清单.txt
+产物：项目根目录的 分发包清单_PackageManifest.txt
 
 用法：
     python make_manifest.py                # 生成清单（模型只记大小，不记哈希）
@@ -17,19 +17,19 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 
 ROOT_REQUIRED = [
-    "启动大模型.bat",
-    "环境检查.bat",
-    "开放局域网端口.bat",
+    "启动大模型_StartModel.bat",
+    "环境检查_EnvCheck.bat",
+    "开放局域网端口_OpenLanPort.bat",
     "README.md",
-    "使用说明.md",
-    "参数阶梯手册.md",
-    "部署说明.txt",
+    "使用说明_UserGuide.md",
+    "参数阶梯手册_TierManual.md",
+    "部署说明_DeployNotes.txt",
     "LICENSE",
     os.path.join("assets", "logo.jpg"),      # README 顶部引用的项目 Logo
 ]
 ROOT_OPTIONAL = [
-    "重新编译.bat",
-    "验收报告.md",
+    "重新编译_Rebuild.bat",
+    "验收报告_AcceptanceReport.md",
     os.path.join("llama.cpp", "models", "下载模型.md"),
 ]
 DIR_REQUIRED = [
@@ -182,7 +182,7 @@ def main():
     out.append('合计：%d 个文件，%s' % (len(rows), human(total)))
     out.append('=' * 96)
 
-    dst = os.path.join(ROOT, '分发包清单.txt')
+    dst = os.path.join(ROOT, '分发包清单_PackageManifest.txt')
     io.open(dst, 'w', encoding='utf-8', newline='\r\n').write('\n'.join(out) + '\n')
     print('written:', dst)
     print('files = %d   total = %s' % (len(rows), human(total)))

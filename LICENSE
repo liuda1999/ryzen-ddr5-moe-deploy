@@ -2,9 +2,9 @@
 Copyright (c) 2026 刘鸿祥 (liuda1999). All rights reserved.
 
 本许可适用于本项目作者创作的内容，包括：
-  · 全部脚本（启动大模型.bat、环境检查.bat、开放局域网端口.bat、重新编译.bat、
+  · 全部脚本（启动大模型_StartModel.bat、环境检查_EnvCheck.bat、开放局域网端口_OpenLanPort.bat、重新编译_Rebuild.bat、
     _维护脚本\ 下的 Python 工具）
-  · 全部文档（README.md、使用说明.md、参数阶梯手册.md、部署说明.txt、验收报告.md 等）
+  · 全部文档（README.md、使用说明_UserGuide.md、参数阶梯手册_TierManual.md、部署说明_DeployNotes.txt、验收报告_AcceptanceReport.md 等）
   · 项目标识（assets\ 下的 Logo 等图片资源）
 
 「源码公开」指源代码可自由阅读、可自行修改供本人非商业使用，

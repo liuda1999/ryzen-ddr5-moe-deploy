@@ -6,7 +6,7 @@ setlocal EnableExtensions
 title Qwen3.6-35B 本地大模型 环境与安全检查
 
 REM ============================================================
-REM   环境检查.bat —— 启动前的全量体检
+REM   环境检查_EnvCheck.bat —— 启动前的全量体检
 REM   双击即可运行；任何一项 [失败] 都意味着启动会出问题。
 REM ============================================================
 
@@ -50,7 +50,7 @@ if not exist "%BIN_DIR%\ggml-cpu-icelake.dll" goto :PISA_NONE
 if exist "%BIN_DIR%\ggml-cpu-cascadelake.dll" (
   echo         [警告/WARN] ggml-cpu-cascadelake.dll 处于启用状态 / is enabled
   echo                它会抢在 icelake 之前被选中 / it would be picked before icelake，导致 VBMI 指令失效 / disabling VBMI
-  echo                处理/FIX：启动大模型.bat 会自动改名为 .disabled / renames it to .disabled automatically
+  echo                处理/FIX：启动大模型_StartModel.bat 会自动改名为 .disabled / renames it to .disabled automatically
   set "WARN=1"
 ) else (
   echo         正常/OK    icelake 变体优先/preferred，AVX-512 + VNNI + VBMI 生效/active
@@ -263,7 +263,7 @@ echo.
 echo ============================================================
 if "%FAIL%"=="1" (
   echo   结论/RESULT：检查未通过 / checks failed（有 [失败] 项 / FAIL items），请先修复后再启动 / fix them first.
-  if not exist "%BIN_DIR%\llama-server.exe" echo         缺少程序时：运行 重新编译.bat 重新编译
+  if not exist "%BIN_DIR%\llama-server.exe" echo         缺少程序时：运行 重新编译_Rebuild.bat 重新编译
   if "%MODEL_MISS%"=="1" echo         缺少模型时：按 README.md「模型下载」下载后放入 llama.cpp\models\
 ) else (
   if "%WARN%"=="1" (
@@ -271,7 +271,7 @@ if "%FAIL%"=="1" (
   ) else (
     echo   结论/RESULT：全部通过 / all good，可以启动 / ready to start.
   )
-  echo         启动命令 / start with：启动大模型.bat
+  echo         启动命令 / start with：启动大模型_StartModel.bat
 )
 echo ============================================================
 echo.
