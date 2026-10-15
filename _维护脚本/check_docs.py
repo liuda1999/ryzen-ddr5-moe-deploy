@@ -12,9 +12,14 @@
         于是「35B 的全部权重，约 13」被划掉。
         规则：正文里的 `~` 一律转义成 `\\~`（代码块与行内代码里不转，也不该转）。
   2. 代码围栏 ``` 是否成对（奇数说明有没闭合的块，整篇后面都会变形）
+  3. **换行与行尾是否被外部工具改写**
+     —— 项目约定：所有文档与脚本都是 CRLF。
+        实测踩到过：某个 Markdown 预览/编辑器把 README 整篇「往返转换」了一遍 ——
+        行尾变成 `CR + 空格`、文件退化成 LF、badge 的 `[![x](u)](link)` 外壳被剥掉、
+        表格被重新补空格对齐。这种改写是**有损**的，必须立刻发现。
 
 检查项（提示，不影响退出码）：
-  3. 文档里引用的 .bat / .md / .txt / .py 文件是否存在
+  4. 文档里引用的 .bat / .md / .txt / .py 文件是否存在
      —— 改名之后最容易漏的就是这里。**历史发布说明（_维护脚本/releases/）跳过**，
         因为它们故意记录当时的旧文件名。
 
@@ -121,12 +126,35 @@ def check_file_refs(name, text, repo_names):
     return warns
 
 
+def check_eol(name, raw):
+    """项目约定 CRLF；同时抓「CR + 空格」这种往返转换留下的畸形行尾。
+
+    判据：按 \\n 切开后，非空行必须**正好一个 \\r 且落在末尾**。
+    实测那种往返转换会产出 `…\\r  \\n`（CR 后面还跟空格），正好被这条抓住。
+    """
+    bad = []
+    mal = 0
+    if b"\r" in raw:                      # 只有本来就含 \r 的文件才谈「CRLF 不干净」
+        mal = sum(1 for ln in raw.split(b"\n")
+                  if ln and (ln.count(b"\r") != 1 or not ln.endswith(b"\r")))
+    if mal:
+        bad.append("%s：有 %d 行不是干净的 CRLF（CR 后面还有别的字符），"
+                   "像是被某个 Markdown 工具往返转换过（会同时丢链接、改表格对齐）。"
+                   "请从 git 恢复该文件" % (name, mal))
+    if b"\r\n" not in raw and b"\n" in raw:
+        bad.append("%s：换行是 LF，项目约定是 CRLF（可能被编辑器/预览工具改写过）" % name)
+    return bad
+
+
 def main():
     hard, warn = [], []
     repo_names = all_repo_files()
     files = md_files()
     for f in files:
-        text = io.open(os.path.join(ROOT, f.replace("/", os.sep)), encoding="utf-8").read()
+        path = os.path.join(ROOT, f.replace("/", os.sep))
+        raw = io.open(path, "rb").read()
+        hard += check_eol(f, raw)
+        text = raw.decode("utf-8")
         hard += check_tilde(f, text)
         hard += check_fence(f, text)
         if not f.startswith(SKIP_REFS):
