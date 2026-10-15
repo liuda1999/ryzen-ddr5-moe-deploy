@@ -18,7 +18,7 @@
 [![Hardware](https://img.shields.io/badge/hardware-Ryzen%20%2B%20DDR5-red)](#二为什么核心是-ryzen--ddr5expo)
 [![Backend](https://img.shields.io/badge/backend-llama.cpp%20CPU-green)](https://github.com/ggml-org/llama.cpp)
 [![Goal](https://img.shields.io/badge/goal-25%20token%2Fs-success)](#四快速开始)
-[![Release](https://img.shields.io/badge/release-0.2.5-orange)](../../releases)
+[![Release](https://img.shields.io/badge/release-0.2.6-orange)](../../releases)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 ---
@@ -66,6 +66,8 @@
 | **内存预检** | 按实际可用内存判断本档位能不能跑，不够就当场拦住并给出替代档位 |
 | **模型可替换** | 换 `.gguf` 改一行即可，套件本身不与任何模型绑定 |
 | **内置模型下载** | 没检测到模型时，启动脚本直接问你要 **1=IQ3_S / 2=Q4_K_XL**，用系统自带 `curl` 断点续传下到 `models\`，下完自动接着选档位；已有模型则跳过。可换用 32 GB 内存设备 |
+| **脚本中英双语** | `启动大模型.bat` / `环境检查.bat` / `开放局域网端口.bat` 的全部输出为「中文 / English」，非中文环境也能照着走 |
+| **显存预算透明** | 启动时逐项打印「总量 − 其它程序 − 计算/上下文 − 视觉塔 − KV − 安全垫 → 层数」，并按预算自动决定 KV 精度（f16 / q8_0）；其它程序占用显存超 600 MiB 会当场告警 |
 | **中文路径可用** | 中文目录、中文用户名下均已实测通过 |
 
 ---
@@ -472,10 +474,12 @@ python _维护脚本\gen_check.py     :: 重新生成 环境检查.bat
    请按上面任一条自取。缺它时一律纯 CPU，不影响使用。
    收益已实测（GTX 1060 3GB / Pascal / 16K：15.6 → 23.7 t/s，**+52%**；填满上下文 +90%）；
    自动启用前会先**真跑一次后端设备枚举**，探不到就安静退回纯 CPU，不会拦启动。
-   **默认策略刻意不留余量**（448 MiB 只是桌面 + KV + CUDA 上下文的硬开销）：
-   标定用的 3 GB 卡是最坏情况，4 GB 及以上的卡本来就吃不满那约 1.3 GiB
-   非专家权重（会被层数上限封顶），余量天然更大。只有 3 GB 卡同时跑重度
-   图形程序时可能越界分页、把速度打回 1/2.4 —— 要留余量就调大 `GPU_RESERVE_MIB`。
+   **显存预算已改为逐项实测标定**（0.2.6）：启动时读取显卡总量与**其它程序已占用**，
+   再扣掉计算缓冲/CUDA 上下文、视觉塔（载 mmproj 时）、KV（按上下文与 KV 精度算）
+   与**安全垫**，剩下的才给权重 —— 并在启动信息里完整打印，便于核对。
+   安全垫由 `GPU_SAFETY_MIB` 控制（默认 128 MiB，调大更保险、层数会少几层）。
+   另外 KV 精度按预算自动决定：f16 装不下就换 q8_0（32K 省约 320 MiB，代价约 0.7% 速度）。
+   不想载视觉塔（省约 320 MiB 显存 + 约 800 MiB 共享内存）可把顶部 `MMPROJ_SW` 设为 `off`。
    另外 `--fit on` **不能**与 `--cpu-moe` 同用（会让 llama.cpp 放弃适配后
    把全部层塞进显存），脚本已改为自己按显存算层数。
    顺带一提：本模型**无 MTP 头**；带 MTP 的同规格模型即使不开投机也慢约 14%，

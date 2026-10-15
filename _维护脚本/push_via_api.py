@@ -120,8 +120,29 @@ def main():
     remote_tree = remote_commit["tree"]["sha"]
     local_parent_tree = git("rev-parse", "HEAD^^{tree}")
     print("远端 main  :", remote_head)
+
     if remote_tree != local_parent_tree:
-        sys.exit("远端最新树与本地父提交树不一致，中止（远端可能有新提交）")
+        # 远端有本地没有的提交（例如别人在网页上改过文件）。逐个比对，
+        # 只有当「远端与本地父提交不同的文件」全部都在本次要覆盖的范围内才继续。
+        print("注意：远端树与本地父提交树不一致，逐文件比对……")
+        st, rt = api("GET", "/repos/%s/%s/git/trees/%s?recursive=1" % (OWNER, REPO, remote_tree))
+        if st != 200:
+            sys.exit("读取远端树失败 %s: %s" % (st, rt))
+        remote_map = {e["path"]: e["sha"] for e in rt.get("tree", []) if e["type"] == "blob"}
+        local_parent_map = {}
+        for line in git("ls-tree", "-r", "HEAD^").splitlines():
+            meta, path = line.split("\t", 1)
+            local_parent_map[path] = meta.split()[2]
+        differ = sorted(p for p in set(remote_map) | set(local_parent_map)
+                        if remote_map.get(p) != local_parent_map.get(p))
+        changed_set = set(changed)
+        outside = [p for p in differ if p not in changed_set]
+        print("  远端独有/不同的文件 %d 个：" % len(differ))
+        for p in differ[:20]:
+            print("    %s%s" % (p, "  （本次会覆盖）" if p in changed_set else "  ← 不在本次改动里"))
+        if outside:
+            sys.exit("中止：上面标了「不在本次改动里」的文件会被远端丢掉，请先处理这些差异")
+        print("  以上文件本次都会被覆盖，继续。")
 
     entries = []
     for rel in changed:
