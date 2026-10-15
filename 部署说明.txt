@@ -1,5 +1,7 @@
 =====================================================================
- llama.cpp 本地部署交付摘要（Windows 原生 / 仅 CPU 推理 / 不使用显卡）
+ llama.cpp 本地部署交付摘要（Windows 原生 / 消费级 N 卡显存混合卸载，纯 CPU 兜底）
+ 核心目的：让本地消费级显卡（N 卡，主目标 8 GB 显存，最低验证 3 GB）跑动 30B~35B MoE 大模型
+ 优先级：  实用性与 Token 生成速度优先；设计目标：尽可能达到 25 token/s
 先看这个 -> 使用说明.md（面向使用者的安装、依赖、路径与排查说明）
  重点：AVX-512 完整启用（含 VNNI / VBMI）
 =====================================================================
@@ -49,7 +51,8 @@
                   BUILD_SHARED_LIBS=ON
                   GGML_NATIVE=OFF            （由 ALL_VARIANTS 取代）
 
-  启用的后端：    仅 CPU（无任何 GPU 后端）
+  启用的后端：    随包的 CPU 后端（编译期不含 GPU 后端；显存混合卸载所需的
+                  ggml-cuda.dll 由用户按 README 第 3 步自取，运行时动态加载）
   关闭的后端/选项：CUDA=OFF, Vulkan=OFF, OpenCL=OFF, Metal=OFF, HIP=OFF,
                   LLAMA_OPENSSL=OFF(HTTPS), UI/预编译UI=OFF,
                   LLAMA_BUILD_TESTS=OFF, LLAMA_BUILD_EXAMPLES=OFF
@@ -84,7 +87,7 @@
       CPU : SSE3=1 | SSSE3=1 | AVX=1 | AVX2=1 | F16C=1 | FMA=1 | BMI2=1
             | AVX512=1 | AVX512_VBMI=1 | AVX512_VNNI=1
             | LLAMAFILE=1 | OPENMP=1 | REPACK=1
-    => AVX-512F + VNNI + VBMI 全部启用，仅 CPU 后端（无任何 GPU 后端）。
+    => AVX-512F + VNNI + VBMI 全部启用（本次查询未加载 GPU 后端）。
 
   [CPUID 实测特性位]（check-cpuid.exe，只读特性位、不读型号）
     AVX512F/DQ/IFMA/CD/BW/VL = 1
@@ -98,7 +101,7 @@
     "MSVC 2022 doesn't support BF16 intrinsics without /arch:AVX10.1"），
     故含 BF16 的 zen4/cooperlake 变体在 MSVC 下被上游跳过；本机亦未安装
     clang-cl，无法走 -mavx512bf16。
-    影响面：BF16 主要服务 bf16 数据类型计算，对 Q4_K_M 等 GGUF 量化推理影响很小；
+    影响面：BF16 主要服务 bf16 数据类型计算，对 Q4_K_XL 等 GGUF 量化推理影响很小；
     关键收益来源 VNNI（int8 点积）与 VBMI（字节重排）已启用。
 
   [复现方式]
@@ -117,8 +120,11 @@
   线程 / 上下文策略（重要，已由实测确定，见第 6 节）：
     本机 16 物理核 / 32 逻辑核。固定用 24 线程（实测 8~40 线程生成速度基本持平，
     瓶颈在显存/内存带宽与逐层串行，不在 CPU 算力）。
-    生成速度与上下文长度几乎无关：短对话在任何档位都约 24 t/s，
-    只有把上下文填满才缓降到 20 t/s（12K→32K 分别约 22 / 22 / 21 / 20 t/s）。
+    生成速度与上下文长度几乎无关：短对话在任何档位都约 24 t/s（3G 卡），
+    只有把上下文填满才缓降（32K 填满约 20、64K 填满约 12）。上下文越长越慢的是 prefill。
+    档位：1=16K 2=24K 3=32K 4=64K 5=96K 6=128K（12K 太短已取消）。
+      启动菜单会按显卡显存自动推荐档位（8G→64K、12G→96K、16G→128K）。
+      64K 及以上在小显存卡上会自动给 KV 加 q8_0 量化。
     有 N 卡时默认启用显存混合卸载；无 N 卡按纯 CPU（约 15.6 t/s）。
     脚本已内置 THREADS=24，改 CTX 即可换档（现场在 :APPLY_TIER 段）。
     全部档位数据与取舍：E:\llm-cpp\参数阶梯手册.md
@@ -191,7 +197,7 @@
           自动 GPU（40 层）  生成 23.73 t/s   填满 21.96 t/s   （+52% / +90%）
         卸载层数不敏感：32 层往上生成速度基本持平，压到上限即可。
         模型对比（短对话）：无 MTP 版 23.6 t/s、带 MTP 版 21.0 t/s（慢约 14%）、
-                  IQ3_S 24.8 t/s —— 故默认改用无 MTP 的 Q4_K_M。
+                  IQ3_S 24.8 t/s —— 故本项目不再使用 MTP 模型。
       - 两个实测踩到的坑（脚本已规避，改脚本时别改回去）：
           1. --fit on 与 --cpu-moe 不能同用。--cpu-moe 会设置张量缓冲区覆盖，
              --fit 发现「用户已设置覆盖」就直接放弃（日志原文：
@@ -269,10 +275,10 @@
 5) 模型部署验证（Qwen3.6-35B-A3B）
 =====================================================================
   当前模型（无 MTP 版）：
-    - Qwen3.6-35B-A3B-uncensored-heretic-Q4_K_M.gguf   21.2 GB（主模型）
+    - Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf   20.82 GB（主模型，无 MTP）
     - mmproj-BF16.gguf                                  0.84 GB（视觉投影，多模态）
-  来源：llmfan46/Qwen3.6-35B-A3B-uncensored-heretic-GGUF（见 下载模型.md）
-    （曾用带 MTP 的 Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf，实测慢约 14%，已换掉）
+  官方推荐下载（无 MTP）：unsloth/Qwen3.6-35B-A3B-GGUF 的 UD-Q4_K_XL / IQ3_S（见 下载模型.md）
+    （本项目不再使用带 MTP 的模型 —— 实测即使不开投机也慢约 14%）
 
   模型元数据（_维护脚本/gguf_inspect.py 解析）：
     general.architecture = qwen35moe      -> llama.cpp 支持（LLM_ARCH_QWEN35MOE）
@@ -304,7 +310,7 @@
     - 该模型默认启用思考链（reasoning），会先输出 reasoning_content 再给答案；
       若 token 预算较小可能只看到思考过程（finish_reason: length）。
       需要直接回答时：增大 max_tokens，或用 --reasoning off 关闭思考。
-    - 上下文按档位限制（12K/16K/24K/32K，默认 16K）。
+    - 上下文按档位限制（16K/24K/32K/64K/96K/128K，按显存推荐）。
 
 
 =====================================================================

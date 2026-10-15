@@ -2,9 +2,9 @@
 """打包「不含模型」的免安装发行包，供 GitHub Releases 附件使用。
 
 用法：
-    python make_release.py                 # 版本号取 0.2.0
-    python make_release.py 0.2.0           # 指定版本号
-    python make_release.py 0.1.0 D:\\out   # 指定输出目录
+    python make_release.py                 # 版本号取 0.2.5
+    python make_release.py 0.2.5           # 指定版本号
+    python make_release.py 0.2.5 D:\\out   # 指定输出目录
 
 输出：
     <输出目录>\\ryzen-ddr5-moe-deploy-<版本>-no-model.zip
@@ -88,7 +88,7 @@ def collect_maint():
 
 
 def main():
-    version = sys.argv[1] if len(sys.argv) > 1 else "0.2.0"
+    version = sys.argv[1] if len(sys.argv) > 1 else "0.2.5"
     outdir = sys.argv[2] if len(sys.argv) > 2 else "E:\\llm-cpp-release"
 
     name = "ryzen-ddr5-moe-deploy-%s-no-model.zip" % version

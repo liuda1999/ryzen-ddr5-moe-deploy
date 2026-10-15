@@ -8,7 +8,10 @@ ROOT = os.path.dirname(HERE)
 OUT = os.path.join(ROOT, "启动大模型.bat")
 
 BAT = r'''@echo off
-chcp 936 >nul 2>nul
+REM 注意 <nul：chcp 改代码页时会读并清空输入缓冲，重定向/管道送 stdin
+REM 的场景下会把第一行输入吞掉（实测），加 <nul 让它立刻读到 EOF。
+REM 对交互使用同样有益：不会吃掉检查期间提前键入的内容。
+chcp 936 <nul >nul 2>nul
 setlocal EnableExtensions
 title Qwen3.6-35B 本地大模型 一键开关
 
@@ -16,14 +19,16 @@ REM ============================================================
 REM   启动大模型.bat  ——  二合一开关（启动 / 关闭 / 重启 / 状态）
 REM
 REM   双击运行：
-REM     服务未运行  ->  先做环境与安全检查，通过后按档位启动
+REM     服务未运行  ->  先做环境与硬件检查，再检查模型：
+REM                       没有模型  ->  引导下载（1=IQ3_S / 2=Q4_K_XL，断点续传）
+REM                       已有模型  ->  跳过，直接按档位启动
 REM     服务已运行  ->  默认关闭服务（也可选择重启、打开网页、看日志）
 REM
 REM   命令行用法：
 REM     启动大模型.bat               交互模式（自动判断启动或关闭）
-REM     启动大模型.bat start  [1-4]  启动（档位可省，默认 2）
+REM     启动大模型.bat start  [1-6]  启动（档位可省，默认按显存推荐）
 REM     启动大模型.bat stop          关闭
-REM     启动大模型.bat restart [1-4] 重启
+REM     启动大模型.bat restart [1-6] 重启
 REM     启动大模型.bat status        只看状态
 REM     启动大模型.bat check         只做环境与安全检查
 REM
@@ -53,6 +58,19 @@ REM     想临时试一次：启动大模型.bat start 2 gpu
 REM     缺后端 / 缺 CUDA 运行库请跑 环境检查.bat 的「GPU 支持自检」。
 REM     原理与显存预算详见：参数阶梯手册.md 的「GPU 混合卸载」章节。
 REM
+REM ============================================================
+REM   模型自动下载（只在「没有模型」时触发）
+REM     顺序：环境与硬件检查 -> 检查模型 -> 没有才下载 -> 档位选择
+REM       已有模型（Q4_K_XL / IQ3_S 任一存在）-> 跳过，直接选档位启动
+REM       没有模型 -> 菜单选量化后自动下载：
+REM         1  IQ3_S    约 12.74 GB   32 GB 内存设备首选，速度略快
+REM         2  Q4_K_XL  约 20.82 GB   默认推荐，量化质量最好
+REM     下载用系统自带 curl：-C - 断点续传，中断后重跑会接着下；
+REM     下载前检查磁盘空间，完成后校验文件大小，然后自动进入档位选择。
+REM     模型来源：https://hf-mirror.com/unsloth/Qwen3.6-35B-A3B-GGUF
+REM     手动下载 / 换模型：llama.cpp\models\下载模型.md
+REM ============================================================
+
 REM   可在任意位置追加 quiet 参数进入静默模式（计划任务 / 开机自启用）：
 REM     启动大模型.bat start 2 quiet
 REM
@@ -61,7 +79,7 @@ REM ============================================================
 
 set "ROOT=%~dp0"
 set "BIN_DIR=%ROOT%llama.cpp\build-zen5\bin"
-set "MODEL=%ROOT%llama.cpp\models\Qwen3.6-35B-A3B-uncensored-heretic-Q4_K_M.gguf"
+set "MODEL=%ROOT%llama.cpp\models\Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
 set "MMPROJ=%ROOT%llama.cpp\models\mmproj-BF16.gguf"
 set "SERVER_EXE=%BIN_DIR%\llama-server.exe"
 set "LOG_DIR=%ROOT%logs"
@@ -171,7 +189,7 @@ if /i "%~1"=="restart" goto :ARG_RESTART
 if "%~1"==""           goto :MAIN
 echo [错误] 未知参数：%~1
 echo.
-echo 用法：启动大模型.bat [start^|stop^|restart^|status^|check] [档位1-4]
+echo 用法：启动大模型.bat [start^|stop^|restart^|status^|check] [档位1-6]
 echo.
 pause
 exit /b 1
@@ -185,7 +203,10 @@ goto :MENU_STOPPED
 REM ============================================================
 :ARG_START
 if not "%~2"=="" set "TIER=%~2"
-if not defined TIER set "TIER=2"
+if not defined TIER (
+  call :TIER_HINT
+  if defined REC_TIER ( set "TIER=%REC_TIER%" ) else ( set "TIER=1" )
+)
 call :DETECT
 if defined SRV_PID (
   echo [提示] 服务已在运行（PID %SRV_PID%），无需重复启动。
@@ -264,6 +285,8 @@ echo.
 exit /b 0
 
 :ENV_CHECK_ONLY
+REM 先解析实际存在的模型文件（Q4_K_XL 优先，IQ3_S 兜底），避免误报缺失
+call :MODEL_DETECT
 call :SAFETY_CHECK
 echo.
 if "%CHK_FAIL%"=="1" (
@@ -320,32 +343,61 @@ goto :MENU_RUNNING
 
 REM ============================================================
 REM  服务未运行：默认动作是启动
+REM  流程：环境与硬件检查 -> 模型检查（没有就引导下载）-> 档位菜单
 REM ============================================================
 :MENU_STOPPED
 cls
+REM 第一步：环境与硬件检查（首次进入时做；从「内存不足」返回时不重复）
+if not defined ENV_DONE (
+  call :MODEL_DETECT
+  REM 模型缺失这一步只警告不拦截 —— 紧接着 MODEL_GATE 就会引导下载
+  set "MODEL_SOFT=1"
+  call :SAFETY_CHECK
+  set "MODEL_SOFT="
+  set "ENV_DONE=1"
+  if "%CHK_FAIL%"=="1" (
+    echo.
+    echo   结论：检查未通过，请先修复上面标记为 [失败] 的项目。
+    echo.
+    call :PAUSE_IF
+    exit /b 1
+  )
+)
+REM 第二步：检查模型；没有就进下载菜单（1=IQ3_S / 2=Q4_K_XL），下完自动回到这里
+call :MODEL_GATE
+if defined MODEL_GATE_ABORT exit /b 1
+cls
+call :TIER_HINT
 echo ============================================================
 echo   Qwen3.6-35B 本地大模型 · 服务未运行
 echo ============================================================
-echo   模型   Qwen3.6-35B-A3B-uncensored-heretic Q4_K_M（MoE，21.2 GB）
+echo   模型   %MODEL_LABEL%
 echo   后端   纯 CPU（AVX-512+VNNI+VBMI）· 有 N 卡时自动启用显存混合卸载
+if defined REC_CTX_HINT (
+echo   显卡   检测到 %VRH% MiB 显存，建议档位：%REC_TIER% %REC_TIER_NAME%（%REC_CTX_HINT% 上下文）
+)
 echo.
 echo ------------------------------------------------------------
 echo   请选择配置档位（越往下上下文越长；有 N 卡时自动启用显存加速）
 echo ------------------------------------------------------------
-echo   1   极速档    12K 上下文 / 24 线程    约 22~24 t/s   需内存 ~24 GB
-echo   2   实用档    16K 上下文 / 24 线程    约 22~24 t/s   需内存 ~24 GB   [默认]
-echo   3   长文档    24K 上下文 / 24 线程    约 21~24 t/s   需内存 ~25 GB
-echo   4   超长档    32K 上下文 / 24 线程    约 20~24 t/s   需内存 ~25 GB
+echo   1   实用档       16K 上下文 / 24 线程    需内存 ~24 GB
+echo   2   长文档档     24K 上下文 / 24 线程    需内存 ~24 GB
+echo   3   超长档       32K 上下文 / 24 线程    需内存 ~25 GB   [3~4G 卡上限]
+echo   4   长上下文档   64K 上下文 / 24 线程    需内存 ~25 GB   [需 8G 显存]
+echo   5   超大档       96K 上下文 / 24 线程    需内存 ~26 GB   [需 12G 显存，未实测]
+echo   6   极限档      128K 上下文 / 24 线程    需内存 ~26 GB   [需 16G 显存，未实测]
 echo.
 echo   0   退出
 echo ------------------------------------------------------------
-echo   说明：区间上限=短对话，下限=上下文填满后；生成速度与上下文长度关系不大，
-echo         填满 32K 时约 20 t/s。无 N 卡时按纯 CPU 运行（约 15 t/s）。
-echo         完整实测数据见 参数阶梯手册.md
+echo   说明：短对话约 24 t/s，填满后随长度缓降（32K 填满约 20、64K 填满约 12）。
+echo         无 N 卡时按纯 CPU 运行（约 15 t/s）。档位按显存选：8G 选 4，12G 选 5，16G 选 6。
+echo         64K 及以上在 3G 卡上需 KV 量化（脚本会自动加）。详见 参数阶梯手册.md
 echo.
 set "TIER="
-set /p "TIER=  请输入档位编号 [2] : "
-if "%TIER%"=="" set "TIER=2"
+set "TIER_DEF=1"
+if defined REC_TIER set "TIER_DEF=%REC_TIER%"
+set /p "TIER=  请输入档位编号 [%TIER_DEF%] : "
+if "%TIER%"=="" set "TIER=%TIER_DEF%"
 if "%TIER%"=="0" exit /b 0
 if defined THINK_FIXED goto :DO_START
 goto :STEP_THINK
@@ -388,6 +440,12 @@ if not defined CTX (
   pause
   goto :MENU_STOPPED
 )
+REM 模型门：没有模型先引导下载（命令行 start / restart 直达时也会走到）
+call :MODEL_GATE
+if defined MODEL_GATE_ABORT exit /b 1
+REM 环境检查在档位菜单里已做过（ENV_DONE）就不再重复；
+REM 命令行直达的路径没做过，在这里补做。
+if defined ENV_DONE goto :DS_AFTER_ENV
 cls
 echo ============================================================
 echo   启动前安全与环境检查
@@ -402,14 +460,21 @@ if "%CHK_FAIL%"=="1" (
   pause
   exit /b 1
 )
+:DS_AFTER_ENV
+cls
+echo ============================================================
+echo   启动前检查：内存与显卡
+echo ============================================================
 call :MEM_CHECK
 if "%MEM_BLOCK%"=="1" goto :MEM_NOT_ENOUGH
 if "%MEM_WARN%"=="1" (
   echo.
   echo   [警告] 可用内存偏紧，继续启动可能导致系统明显卡顿甚至被系统杀掉进程。
-  set "YN="
-  set /p "YN=  仍要继续启动吗？(y/N) : "
-  if /i not "%YN%"=="y" (
+  REM 询问必须走子程序：写在 if 块里的话，块内 set /p 虽能读到输入，
+  REM 但同一块后面的 %YN% 在整块解析时就已展开成旧值（空），
+  REM 结果永远是「已取消」，用户输 y 也无法继续。
+  call :ASK_MEM_CONTINUE
+  if "%ASK_RC%"=="0" (
     echo   已取消，返回档位菜单。
     ping -n 2 127.0.0.1 >nul
     goto :MENU_STOPPED
@@ -460,7 +525,7 @@ REM    3. 保留 < nul：避免服务持有本窗口的输入句柄导致脚本�
 REM ------------------------------------------------------------
 powershell -NoProfile -Command "$q=[char]34; $c='cmd /c ' + $q + $q + '%SERVER_EXE%' + $q + ' --model ' + $q + '%MODEL%' + $q + ' --mmproj ' + $q + '%MMPROJ%' + $q + ' --host %HOST% --port %PORT% --api-key %API_KEY% --reasoning %THINK% --ctx-size %CTX% --threads %THREADS% --threads-batch %THREADS% %GPU_ARGS% < nul > ' + $q + '%LOG_FILE%' + $q + ' 2>&1' + $q; (New-Object -ComObject WScript.Shell).Run($c, 0, $false)"
 
-echo [信息] 正在加载 19.8 GB 模型到内存，请稍候（通常 30~90 秒）...
+echo [信息] 正在加载 20.8 GB 模型到内存，请稍候（通常 30~90 秒）...
 echo [信息] 日志：%LOG_FILE%
 echo.
 
@@ -625,8 +690,8 @@ echo.
 echo   三个解决办法，任选其一：
 echo     1  关闭其它占内存的程序（浏览器、虚拟机、其它模型服务）后重试
 echo     2  在下面标注为「可用」的档位里挑一个更小的
-echo     3  换更小的模型：把 GGUF 换成更小量化的版本，
-echo        再改本脚本顶部的 MODEL 变量后重新启动
+echo     3  换更小的模型：把 GGUF 换成更小量化的版本（目录里放
+echo        IQ3_S 时脚本会自动改用它），再改顶部 MODEL 变量重启
 echo.
 if "%QUIET%"=="1" exit /b 1
 echo   按回车返回档位菜单重新选择。
@@ -636,12 +701,15 @@ goto :MENU_STOPPED
 
 REM ============================================================
 :DO_RESTART
-REM 未指定档位时，沿用上次启动记录中的档位（读不到则回落到默认 2）
+REM 未指定档位时，沿用上次启动记录中的档位（读不到则按显存推荐，再回落到 16K）
 if not defined TIER (
   call :LOAD_PIDFILE
   if defined CUR_TIER set "TIER=%CUR_TIER%"
 )
-if not defined TIER set "TIER=2"
+if not defined TIER (
+  call :TIER_HINT
+  if defined REC_TIER ( set "TIER=%REC_TIER%" ) else ( set "TIER=1" )
+)
 echo.
 echo [信息] 正在重启服务...
 call :DO_STOP
@@ -733,10 +801,12 @@ REM  子程序：档位 -> 参数
 REM ============================================================
 :APPLY_TIER
 set "CTX="
-if "%TIER%"=="1" ( set "CTX=12288" & set "THREADS=24" & set "TIER_NAME=极速档" & set "NEED_GB=24" )
-if "%TIER%"=="2" ( set "CTX=16384" & set "THREADS=24" & set "TIER_NAME=实用档" & set "NEED_GB=24" )
-if "%TIER%"=="3" ( set "CTX=24576" & set "THREADS=24" & set "TIER_NAME=长文档档" & set "NEED_GB=25" )
-if "%TIER%"=="4" ( set "CTX=32768" & set "THREADS=24" & set "TIER_NAME=超长档" & set "NEED_GB=25" )
+if "%TIER%"=="1" ( set "CTX=16384"  & set "THREADS=24" & set "TIER_NAME=实用档"     & set "NEED_GB=24" )
+if "%TIER%"=="2" ( set "CTX=24576"  & set "THREADS=24" & set "TIER_NAME=长文档档"   & set "NEED_GB=24" )
+if "%TIER%"=="3" ( set "CTX=32768"  & set "THREADS=24" & set "TIER_NAME=超长档"     & set "NEED_GB=25" )
+if "%TIER%"=="4" ( set "CTX=65536"  & set "THREADS=24" & set "TIER_NAME=长上下文档" & set "NEED_GB=25" )
+if "%TIER%"=="5" ( set "CTX=98304"  & set "THREADS=24" & set "TIER_NAME=超大档"     & set "NEED_GB=26" )
+if "%TIER%"=="6" ( set "CTX=131072" & set "THREADS=24" & set "TIER_NAME=极限档"     & set "NEED_GB=26" )
 exit /b 0
 
 REM ============================================================
@@ -744,16 +814,278 @@ REM  子程序：按当前可用内存列出各档位可行性
 REM ============================================================
 :SHOW_TIER_FIT
 echo   当前可用内存 %FREE_GB% GB（共 %TOTAL_GB% GB）下的档位情况：
-call :FIT_LINE 1 极速档   24
-call :FIT_LINE 2 实用档   24
-call :FIT_LINE 3 长文档档 25
-call :FIT_LINE 4 超长档   25
+call :FIT_LINE 1 实用档     24
+call :FIT_LINE 2 长文档档   24
+call :FIT_LINE 3 超长档     25
+call :FIT_LINE 4 长上下文档 25
+call :FIT_LINE 5 超大档     26
+call :FIT_LINE 6 极限档     26
 exit /b 0
 
 :FIT_LINE
 set /a FIT_NEED=%~3 * 1024
 if %FREE_MB% LSS %FIT_NEED% echo        不可用   档位 %~1  %~2   需 %~3 GB
 if %FREE_MB% GEQ %FIT_NEED% echo        可用     档位 %~1  %~2   需 %~3 GB
+exit /b 0
+
+REM ============================================================
+REM  子程序：按显卡显存推荐上下文档位（nvidia-smi 快速读，不加载 llama.cpp）
+REM  规则：>=16G->档6(128K)  >=12G->档5(96K)  >=8G->档4(64K)  >=3.5G->档3(32K)  否则档1(16K)
+REM  读不到（非 N 卡 / 无 nvidia-smi）时不设 REC_TIER，菜单用普通默认档。
+REM ============================================================
+:TIER_HINT
+set "REC_TIER="
+set "REC_TIER_NAME="
+set "REC_CTX_HINT="
+set "VRH="
+REM 注意：整条 nvidia-smi 命令要用双引号包起来 —— for /f 里 cmd 会把
+REM --format=csv,noheader,nounits 的逗号拆散，导致 nvidia-smi 报「noheader 无法识别」。
+for /f "usebackq tokens=1 delims=, " %%a in (`"nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits" 2^>nul`) do (
+  if not defined VRH set "VRH=%%a"
+)
+if not defined VRH exit /b 0
+set /a VRH=%VRH% 2>nul
+if not defined VRH exit /b 0
+if %VRH% LEQ 0 exit /b 0
+if %VRH% GEQ 15000 ( set "REC_TIER=6" & set "REC_TIER_NAME=极限档"     & set "REC_CTX_HINT=128K" & exit /b 0 )
+if %VRH% GEQ 11000 ( set "REC_TIER=5" & set "REC_TIER_NAME=超大档"     & set "REC_CTX_HINT=96K"  & exit /b 0 )
+if %VRH% GEQ 7000  ( set "REC_TIER=4" & set "REC_TIER_NAME=长上下文档" & set "REC_CTX_HINT=64K"  & exit /b 0 )
+if %VRH% GEQ 3000  ( set "REC_TIER=3" & set "REC_TIER_NAME=超长档"     & set "REC_CTX_HINT=32K"  & exit /b 0 )
+set "REC_TIER=1"
+set "REC_TIER_NAME=实用档"
+set "REC_CTX_HINT=16K"
+exit /b 0
+
+REM ============================================================
+REM  子程序：解析实际要用的模型文件
+REM  目录下两个官方量化谁存在就用谁（Q4_K_XL 优先），
+REM  同时设置档位菜单里显示的模型名。都不在时保持默认 Q4 路径，
+REM  由 MODEL_GATE 引导下载后再重新解析。
+REM  有效性判定：文件存在且不小于 1 GB（两个官方量化都 >12 GB）。
+REM  不足 1 GB 按损坏/不完整处理 —— 会被重新下载覆盖，避免一个
+REM  下载失败留下的残留文件把「有模型」的检测骗过去。
+REM ============================================================
+:MODEL_DETECT
+set "MODEL_DIR=%ROOT%llama.cpp\models"
+set "MODEL_VALID="
+call :MD_TRY "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf" "Qwen3.6-35B-A3B-UD-Q4_K_XL（MoE，无 MTP，20.8 GB）"
+if defined MODEL_VALID exit /b 0
+call :MD_TRY "Qwen3.6-35B-A3B-UD-IQ3_S.gguf" "Qwen3.6-35B-A3B-UD-IQ3_S（MoE，无 MTP，12.7 GB）"
+if defined MODEL_VALID exit /b 0
+set "MODEL=%MODEL_DIR%\Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+set "MODEL_LABEL=Qwen3.6-35B-A3B-UD-Q4_K_XL（尚未下载）"
+exit /b 0
+
+:MD_TRY
+set "MD_FILE=%MODEL_DIR%\%~1"
+if not exist "%MD_FILE%" exit /b 0
+set "MD_OK="
+for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "if((Get-Item -LiteralPath '%MD_FILE%').Length -ge 1073741824){'OK'}"`) do set "MD_OK=%%a
+if not "%MD_OK%"=="OK" (
+  if not defined MD_WARNED echo         [警告]  %~1 不足 1 GB，判定为损坏或不完整，将重新下载覆盖
+  if not defined MD_WARNED set "MD_WARNED=1"
+  exit /b 0
+)
+set "MODEL_VALID=1"
+set "MODEL=%MD_FILE%"
+set "MODEL_LABEL=%~2"
+exit /b 0
+
+REM ------------------------------------------------------------
+REM  子程序：显示模型文件大小（GB，两位小数）
+REM  之所以走子程序：直接写在 if 块里时，%MODEL_GB% 会在整个
+REM  块解析时就被展开（那时还是空值），回显出来是「大小  GB」。
+REM  子调用是全新的解析上下文，变量展开发生在执行时，正常。
+REM ------------------------------------------------------------
+:SHOW_MODEL_SIZE
+for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[math]::Round((Get-Item -LiteralPath '%MODEL%').Length/1GB,2)"`) do echo         大小 %%a GB（Q4 级别完整约 20 GB，明显偏小说明文件损坏）
+exit /b 0
+
+REM ============================================================
+REM  子程序：模型检查，没有就引导下载
+REM
+REM  在环境检查之后、档位菜单之前调用；已有可用模型时直接返回。
+REM  下载用系统自带 curl：-C - 断点续传，临时文件 .part，
+REM  下完改名成正式文件名并校验大小，然后自动回到档位菜单。
+REM  静默模式（quiet）不弹菜单：没有模型就交给后面的检查按
+REM  [失败] 拦下，避免无人值守时卡在输入上。
+REM ============================================================
+:MODEL_GATE
+if defined MODEL_GATE_DONE exit /b 0
+call :MODEL_DETECT
+if defined MODEL_VALID (
+  set "MODEL_GATE_DONE=1"
+  exit /b 0
+)
+if "%QUIET%"=="1" (
+  set "MODEL_GATE_DONE=1"
+  exit /b 0
+)
+if not exist "%SystemRoot%\System32\curl.exe" goto :MG_NOCURL
+if not exist "%MODEL_DIR%" mkdir "%MODEL_DIR%" >nul 2>nul
+
+:MG_MENU
+REM 重试上限：输入流耗尽（管道/重定向到文件尾）时会不断走默认值，
+REM 这里封顶 6 轮，保证任何输入情况下都能退出而不是死循环。
+set /a MG_ROUND+=1
+if %MG_ROUND% GEQ 6 (
+  echo.
+  echo   [提示] 选择次数过多，退出下载引导。可重新运行本脚本再试，
+  echo         或按 llama.cpp\models\下载模型.md 手动下载。
+  echo.
+  set "MODEL_GATE_ABORT=1"
+  set "MODEL_GATE_DONE=1"
+  exit /b 0
+)
+cls
+echo ============================================================
+echo   未检测到模型文件，需要先下载模型
+echo ============================================================
+echo   模型目录   %MODEL_DIR%
+echo   来源       https://hf-mirror.com/unsloth/Qwen3.6-35B-A3B-GGUF
+echo.
+echo   请选择量化版本（二选一，下载一次以后不再询问）：
+echo.
+echo ------------------------------------------------------------
+echo   1   IQ3_S     约 12.74 GB    32 GB 内存设备首选，速度略快
+echo   2   Q4_K_XL   约 20.82 GB    默认推荐，量化质量最好
+echo.
+echo   0   退出（可稍后按 llama.cpp\models\下载模型.md 手动下载）
+echo ------------------------------------------------------------
+echo.
+set "DL="
+set /p "DL=  请输入编号 [2] : "
+REM 只取首个字符：万一输入来源异常（例如被管道塞进含换行的多行
+REM 文本），变量携带换行会把后面的 if 比较行拆散、报"命令语法不
+REM 正确"。正常控制台回车输入只会有 0/1/2，截首字符无副作用。
+set "DL=%DL:~0,1%"
+if "%DL%"=="" set "DL=2"
+if "%DL%"=="0" (
+  set "MODEL_GATE_DONE=1"
+  set "MODEL_GATE_ABORT=1"
+  exit /b 0
+)
+if "%DL%"=="1" goto :MG_PICK_IQ3
+if "%DL%"=="2" goto :MG_PICK_Q4
+goto :MG_MENU
+
+:MG_PICK_IQ3
+set "DL_NAME=Qwen3.6-35B-A3B-UD-IQ3_S.gguf"
+set "DL_SIZE=12.74"
+set "DL_BYTES=13676723168"
+set "DL_NEED_GB=14"
+goto :MG_CONFIRM
+
+:MG_PICK_Q4
+set "DL_NAME=Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+set "DL_SIZE=20.82"
+set "DL_BYTES=22360456160"
+set "DL_NEED_GB=22"
+goto :MG_CONFIRM
+
+REM ------------------------------------------------------------
+REM  下载前确认：磁盘空间预检 + 明确来源与目标
+REM ------------------------------------------------------------
+:MG_CONFIRM
+set "MDL=%MODEL_DIR:~0,1%"
+set "MDL_FREE_GB=?"
+for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[int]((Get-PSDrive -Name '%MDL%' -ErrorAction SilentlyContinue).Free/1GB)"`) do set "MDL_FREE_GB=%%a"
+echo.
+echo   即将下载   %DL_NAME%（约 %DL_SIZE% GB）
+echo   保存到     %MODEL_DIR%\%DL_NAME%
+if "%MDL_FREE_GB%"=="?" (
+  echo   磁盘       读不到 %MDL%: 盘剩余空间，请自行确认充足
+) else (
+  if %MDL_FREE_GB% LSS %DL_NEED_GB% (
+    echo.
+    echo   [失败] %MDL%: 盘仅剩 %MDL_FREE_GB% GB，装不下约 %DL_SIZE% GB 的模型
+    echo          （需要约 %DL_NEED_GB% GB）。可改选 1（IQ3_S）或清理磁盘后重试。
+    echo.
+    call :PAUSE_IF
+    goto :MG_MENU
+  )
+  echo   磁盘       %MDL%: 盘剩余 %MDL_FREE_GB% GB（需要约 %DL_NEED_GB% GB）
+)
+echo.
+echo   下载支持断点续传：中断后重新运行本脚本会接着下载。
+echo   文件较大，所需时间取决于网速，请等进度条走完。
+echo.
+set "YN="
+set /p "YN=  确认开始下载吗？(Y/n) : "
+REM 同上：只取首个字符，防止异常输入携带换行拆散后续 if 行
+set "YN=%YN:~0,1%"
+if /i "%YN%"=="n" goto :MG_MENU
+
+REM ------------------------------------------------------------
+REM  正式下载：curl -L -C - 断点续传，落到 .part，校验后改名
+REM ------------------------------------------------------------
+:MG_DL
+set "DST=%MODEL_DIR%\%DL_NAME%"
+set "PART=%MODEL_DIR%\%DL_NAME%.part"
+set "DL_RC=0"
+echo.
+echo [信息] 开始下载：%DL_NAME%
+if exist "%PART%" echo [信息] 发现未完成的下载，将从断点继续
+REM .part 已达官方大小：直接采用，不再发起请求
+set "PART_BIG="
+if exist "%PART%" (
+  for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "if((Get-Item -LiteralPath '%PART%' -ErrorAction SilentlyContinue).Length -ge %DL_BYTES%){'BIG'}"`) do set "PART_BIG=%%a"
+)
+if "%PART_BIG%"=="BIG" goto :MG_ADOPT
+curl -L -C - --retry 3 --retry-delay 5 -o "%PART%" "https://hf-mirror.com/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/%DL_NAME%"
+set "DL_RC=%errorlevel%"
+if not "%DL_RC%"=="0" goto :MG_DL_FAIL
+
+:MG_ADOPT
+if not exist "%PART%" goto :MG_DL_FAIL
+move /y "%PART%" "%DST%" >nul 2>nul
+if not exist "%DST%" goto :MG_DL_FAIL
+REM 大小校验：与官方发布的精确字节数比对，偏差超过 1% 视为不完整
+set "DL_CHK="
+for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "$s=(Get-Item -LiteralPath '%DST%').Length; $e=%DL_BYTES%; if([math]::Abs($s-$e) -lt ($e/100)){'OK'}"`) do set "DL_CHK=%%a
+if not "%DL_CHK%"=="OK" goto :MG_DL_BADSIZE
+for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[math]::Round((Get-Item -LiteralPath '%DST%').Length/1GB,2)"`) do set "DL_GOT_GB=%%a"
+echo.
+echo ============================================================
+echo   下载完成，模型已就绪
+echo ============================================================
+echo   文件   %DST%
+echo   大小   %DL_GOT_GB% GB（与官方发布值一致）
+echo   提示   需要图片理解的话，还需下载 mmproj-BF16.gguf（0.84 GB）
+echo.
+echo   按回车进入档位选择。
+echo ============================================================
+pause
+call :MODEL_DETECT
+set "MODEL_GATE_DONE=1"
+exit /b 0
+
+:MG_DL_FAIL
+echo.
+echo [错误] 下载未完成（curl 退出码 %DL_RC%）。
+echo        常见原因：网络中断、镜像站限流、磁盘空间不足。
+echo        已下载的部分保留在 %PART%，
+echo        重新运行本脚本会从断点继续，也可按 下载模型.md 手动下载。
+echo.
+call :PAUSE_IF
+goto :MG_MENU
+
+:MG_DL_BADSIZE
+echo.
+echo [错误] 文件大小与官方发布值不符，下载可能不完整。
+echo        请删除 %DST% 后重试，或按 下载模型.md 手动下载。
+echo.
+call :PAUSE_IF
+goto :MG_MENU
+
+:MG_NOCURL
+echo.
+echo [错误] 未找到系统自带 curl（%SystemRoot%\System32\curl.exe），无法自动下载。
+echo        请按 llama.cpp\models\下载模型.md 手动下载模型，放到：
+echo        %MODEL_DIR%
+echo.
+set "MODEL_GATE_ABORT=1"
+set "MODEL_GATE_DONE=1"
 exit /b 0
 
 REM ============================================================
@@ -803,10 +1135,12 @@ for /f "usebackq tokens=1-8 delims=|" %%a in ("%PID_FILE%") do (
 )
 if not defined CUR_THINK set "CUR_THINK=off"
 if not defined CUR_GPU set "CUR_GPU=off"
-if "%CUR_TIER%"=="1" set "CUR_TIER_NAME=极速档"
-if "%CUR_TIER%"=="2" set "CUR_TIER_NAME=实用档"
-if "%CUR_TIER%"=="3" set "CUR_TIER_NAME=长文档档"
-if "%CUR_TIER%"=="4" set "CUR_TIER_NAME=超长档"
+if "%CUR_TIER%"=="1" set "CUR_TIER_NAME=实用档"
+if "%CUR_TIER%"=="2" set "CUR_TIER_NAME=长文档档"
+if "%CUR_TIER%"=="3" set "CUR_TIER_NAME=超长档"
+if "%CUR_TIER%"=="4" set "CUR_TIER_NAME=长上下文档"
+if "%CUR_TIER%"=="5" set "CUR_TIER_NAME=超大档"
+if "%CUR_TIER%"=="6" set "CUR_TIER_NAME=极限档"
 exit /b 0
 
 REM ============================================================
@@ -966,7 +1300,7 @@ REM  （连 pause 的提示都会变英文）。实测 936 -> 65001。
 REM  所以每次在控制台里调用过 llama-server 之后都要改回来。
 REM ============================================================
 :CP_RESET
-chcp 936 >nul 2>nul
+chcp 936 <nul >nul 2>nul
 exit /b 0
 
 REM ============================================================
@@ -1022,8 +1356,21 @@ if %BGA_N% GTR %GPU_NLAYER% set /a BGA_N=%GPU_NLAYER%
 REM --parallel 1：只开一个并发槽。本地单人使用用不上多槽，而它让 KV cache
 REM 不再按 4 份分配 —— 实测 prefill 27.3 -> 33.5 t/s、生成 20.3 -> 21.4 t/s，
 REM 还少占一点显存。
-set "GPU_ARGS=--n-gpu-layers %BGA_N% --cpu-moe --parallel 1"
-set "GPU_STRATEGY=非专家权重上显存（%BGA_N% 层），专家留内存，单并发槽"
+REM
+REM 大上下文（64K 以上）在小显存卡上会自动给 KV 加 q8_0 量化：
+REM   64K 的 f16 KV 约 1280 MiB，加模型 1338 + 计算 ~500 已超 3G 卡的 3071；
+REM   量化后 KV 减半（约 680 MiB），实测能装下（短对话 23.9 t/s）。
+REM   大显存卡（≥4G）不触发，仍用 f16 KV。
+set "BGA_KVQ="
+if not defined CTX set "CTX=16384"
+set /a BGA_KVNEED=%CTX% / 50 + 2200
+if %CTX% GEQ 65536 if %GPU_TOTAL_MIB% LSS %BGA_KVNEED% set "BGA_KVQ=--cache-type-k q8_0 --cache-type-v q8_0"
+set "GPU_ARGS=--n-gpu-layers %BGA_N% --cpu-moe --parallel 1 %BGA_KVQ%"
+if defined BGA_KVQ (
+  set "GPU_STRATEGY=非专家权重上显存（%BGA_N% 层），专家留内存，单并发槽，KV 量化 q8_0"
+) else (
+  set "GPU_STRATEGY=非专家权重上显存（%BGA_N% 层），专家留内存，单并发槽"
+)
 exit /b 0
 :BGA_SMALL
 set "GPU_STRATEGY=纯 CPU（空闲显存 %GPU_FREE_MIB% MiB，不足门槛 %GPU_MIN_FREE_MIB% MiB）"
@@ -1155,11 +1502,18 @@ echo         提示    icelake 变体缺失，需重新编译补齐（见上方 
 
 call :CHK_NEXT
 echo [4/10] 模型文件
-call :CHK_FILE "%MODEL%"
-if exist "%MODEL%" (
-  for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[math]::Round((Get-Item -LiteralPath '%MODEL%').Length/1GB,2)"`) do set "MODEL_GB=%%a"
+if defined MODEL_VALID (
+  for %%F in ("%MODEL%") do echo         正常    %%~nxF
+  call :SHOW_MODEL_SIZE
+) else (
+  if "%MODEL_SOFT%"=="1" (
+    echo         [警告]  没有可用模型，接下来会引导下载（1=IQ3_S / 2=Q4_K_XL）
+  ) else (
+    echo         [失败]  缺少可用模型：%MODEL%
+    echo                 下载方法见 llama.cpp\models\下载模型.md
+    set "CHK_FAIL=1"
+  )
 )
-if exist "%MODEL%" echo         大小 %MODEL_GB% GB（完整模型应约 19.8 GB）
 
 call :CHK_NEXT
 echo [5/10] 视觉投影（多模态）
@@ -1298,6 +1652,19 @@ if %FREE_MB% LSS %NEED_MB% (
     echo   正常    内存充足
   )
 )
+exit /b 0
+
+REM ------------------------------------------------------------
+REM  子程序：内存偏紧时询问是否仍要启动
+REM  输 y 继续（ASK_RC=1）；其它任何输入（含直接回车）都算取消
+REM  （ASK_RC=0）。必须独立成子程序，原因见调用处的注释。
+REM ------------------------------------------------------------
+:ASK_MEM_CONTINUE
+set "ASK_RC=0"
+set "YN="
+set /p "YN=  仍要继续启动吗？(y/N) : "
+set "YN=%YN:~0,1%"
+if /i "%YN%"=="y" set "ASK_RC=1"
 exit /b 0
 '''
 

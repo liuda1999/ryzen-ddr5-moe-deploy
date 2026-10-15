@@ -79,6 +79,9 @@ def main():
     ap.add_argument("--ngl", type=int, default=40)
     ap.add_argument("--threads", type=int, default=24)
     ap.add_argument("--no-mmproj", action="store_true")
+    ap.add_argument("--extra", default="", help="额外传给 llama-server 的参数（空格分隔）")
+    ap.add_argument("--moe", default="--cpu-moe",
+                    help="专家策略，默认 --cpu-moe；可换 --n-cpu-moe N（把前 N 层专家留内存）")
     ap.add_argument("--modes", default="short")
     ap.add_argument("--port", type=int, default=35100)
     ap.add_argument("--rounds", type=int, default=2)
@@ -91,9 +94,12 @@ def main():
 
     args = [BIN, "--host", "127.0.0.1", "--port", str(a.port),
             "--ctx-size", str(a.ctx), "--parallel", "1",
-            "-ngl", str(a.ngl), "--cpu-moe", "-t", str(a.threads), "-m", a.model]
+            "-ngl", str(a.ngl), "-t", str(a.threads), "-m", a.model]
+    args += a.moe.split()          # 专家策略：默认 --cpu-moe，可换 --n-cpu-moe N
     if not a.no_mmproj:
         args += ["--mmproj", MMPROJ]
+    if a.extra:
+        args += a.extra.split()
 
     print("启动：%s" % os.path.basename(a.model), flush=True)
     print("  参数：-c %d  -ngl %d  -t %d  %s" % (

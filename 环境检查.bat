@@ -1,5 +1,7 @@
 @echo off
-chcp 936 >nul 2>nul
+REM 注意 <nul：chcp 改代码页时会读并清空输入缓冲，重定向/管道送 stdin
+REM 的场景下会把第一行输入吞掉（实测），加 <nul 让它立刻读到 EOF。
+chcp 936 <nul >nul 2>nul
 setlocal EnableExtensions
 title Qwen3.6-35B 本地大模型 环境与安全检查
 
@@ -10,7 +12,7 @@ REM ============================================================
 
 set "ROOT=%~dp0"
 set "BIN_DIR=%ROOT%llama.cpp\build-zen5\bin"
-set "MODEL=%ROOT%llama.cpp\models\Qwen3.6-35B-A3B-uncensored-heretic-Q4_K_M.gguf"
+set "MODEL=%ROOT%llama.cpp\models\Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
 set "MMPROJ=%ROOT%llama.cpp\models\mmproj-BF16.gguf"
 set "LOG_DIR=%ROOT%logs"
 set "PID_FILE=%LOG_DIR%\server.pid"
@@ -65,7 +67,7 @@ call :CHK_FILE "%MODEL%"
 if exist "%MODEL%" (
   REM 注意：这里必须在 for 体内直接用 %%a 输出。若先 set 再 echo，由于括号块内的
   REM       %VAR% 在整块解析时就展开，会拿到空值（踩过一次的坑）。
-  for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[math]::Round((Get-Item -LiteralPath '%MODEL%').Length/1GB,2)"`) do echo         大小 %%a GB（完整约 19.8 GB，明显偏小说明文件损坏）
+  for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[math]::Round((Get-Item -LiteralPath '%MODEL%').Length/1GB,2)"`) do echo         大小 %%a GB（Q4 级别完整约 20 GB，明显偏小说明文件损坏）
 ) else (
   echo         下载地址见 README.md 的「模型下载」一节
   echo         或本机文件 llama.cpp\models\下载模型.md
@@ -99,11 +101,12 @@ for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[int]((Get-Ci
 set /a FREE_GB=%FREE_MB% / 1024
 echo         物理总内存 %TOTAL_GB% GB，当前可用 %FREE_GB% GB
 echo.
-call :TIER_LINE 1 极速档    12288 24 28
-call :TIER_LINE 2 实用档    16384 24 30
-call :TIER_LINE 3 长文档档  24576 24 34
-call :TIER_LINE 4 超长档    32768 24 38
-call :TIER_LINE 5 极限档    65536 28 55
+call :TIER_LINE 1 实用档     16384 24 24
+call :TIER_LINE 2 长文档档   24576 24 24
+call :TIER_LINE 3 超长档     32768 24 25
+call :TIER_LINE 4 长上下文档 65536 24 25
+call :TIER_LINE 5 超大档     98304 24 26
+call :TIER_LINE 6 极限档    131072 24 26
 call :DETECT_SRV
 if defined SRV_PID echo         ^(提示：当前已有服务在运行并占用内存，故上面的可用性判断会偏保守^)
 echo.
@@ -442,5 +445,5 @@ REM  子程序：把控制台代码页改回 936
 REM  同上：在控制台里跑过 llama-server 之后必须调用。
 REM ============================================================
 :CP_RESET
-chcp 936 >nul 2>nul
+chcp 936 <nul >nul 2>nul
 exit /b 0
