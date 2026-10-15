@@ -24,6 +24,8 @@ ROOT_REQUIRED = [
     "使用说明.md",
     "参数阶梯手册.md",
     "部署说明.txt",
+    "LICENSE",
+    os.path.join("assets", "logo.jpg"),      # README 顶部引用的项目 Logo
 ]
 ROOT_OPTIONAL = [
     "重新编译.bat",
@@ -131,7 +133,7 @@ def main():
     out.append('')
 
     sections = [
-        ('【1】根目录必需文件', ROOT_REQUIRED),
+        ('【1】根目录必需文件（含授权文件与随包资产）', ROOT_REQUIRED),
         ('【2】根目录可选文件（按需带上）', ROOT_OPTIONAL),
     ]
     for title, names in sections:

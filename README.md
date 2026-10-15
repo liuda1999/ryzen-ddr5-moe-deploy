@@ -1,3 +1,7 @@
+<div align="center">
+<img src="assets/logo.jpg" alt="项目 Logo —— 星云中的双星与黑洞" width="200">
+</div>
+
 # 本地推理 30B~35B MoE 大模型 · 本地部署与调优套件
 
 > **核心目的**：让本地**消费级显卡**（NVIDIA 独显，**以 8 GB 显存为主目标**，最低验证到 3 GB）
@@ -16,10 +20,15 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64-blue)](#三运行环境要求)
 [![Hardware](https://img.shields.io/badge/hardware-Ryzen%20%2B%20DDR5-red)](#二为什么核心是-ryzen--ddr5expo)
-[![Backend](https://img.shields.io/badge/backend-llama.cpp%20CPU-green)](https://github.com/ggml-org/llama.cpp)
+[![Backend](https://img.shields.io/badge/backend-llama.cpp%20CUDA%2FCPU-green)](https://github.com/ggml-org/llama.cpp)
 [![Goal](https://img.shields.io/badge/goal-25%20token%2Fs-success)](#四快速开始)
 [![Release](https://img.shields.io/badge/release-0.2.6-orange)](../../releases)
-[![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
+[![License](https://img.shields.io/badge/license-%E9%9D%9E%E5%95%86%E4%B8%9A%E6%8E%88%E6%9D%83%20%7C%20Non--Commercial-d43f3f)](LICENSE)
+
+> **授权声明 / License**：本项目**源码公开**，可自由阅读、修改并用于**个人与非商业**用途；
+> **未经作者书面授权，不得用于任何商业用途**（销售、搭售、生产环境、付费实施/托管等）。
+> 详见 [`LICENSE`](LICENSE)。
+> **Commercial use requires prior written permission from the author.**
 
 ---
 
@@ -440,6 +449,8 @@ http://<本机局域网IP>:35035
 ├── 开放局域网端口.bat       ← 放行防火墙入站端口（需管理员运行一次）
 ├── 重新编译.bat            ← 从源码重新编译（需 Visual Studio）
 ├── 使用说明.md / 参数阶梯手册.md / 部署说明.txt / 验收报告.md
+├── LICENSE                 ← 非商业授权许可（商用需作者书面授权）
+├── assets\                 ← 项目标识（Logo 等图片资源）
 ├── 分发包清单.txt           ← 完整性校验清单
 ├── _维护脚本\               ← 脚本生成器与维护工具（改 bat 请改这里）
 └── llama.cpp\              ← llama.cpp 源码 + 编译产物 + 模型目录
@@ -508,15 +519,36 @@ python _维护脚本\gen_check.py     :: 重新生成 环境检查.bat
 
 ## 十二、许可证与第三方组件
 
+### 12.1 本项目：非商业授权（源码公开）
+
+| 使用场景 | 是否需要授权 |
+|---|---|
+| 个人学习、研究、评测、自用（含自建服务家用） | **免费**，无需申请 |
+| 学校 / 科研机构 / 公益组织的教学与非营利研究 | **免费**，无需申请 |
+| 博客、视频、论文、技术分享中引用或评测 | **免费**，注明出处即可 |
+| 修改、二次开发后用于上述非商业用途 | **免费**，需保留 `LICENSE` 与版权声明 |
+| 非商业目的的再分发 | **免费**，需完整保留 `LICENSE`，不得暗示作者背书 |
+| **任何商业用途**（销售、搭售、生产环境、付费实施/托管、收费培训等） | **须事先取得作者书面授权** |
+
+> **未经作者书面授权，不得将本项目用于商业用途。**
+> 需要商用请联系 GitHub 账号 [@liuda1999](https://github.com/liuda1999) 或在本仓库开 Issue。
+> 完整条款见 [`LICENSE`](LICENSE)。**本许可不是 OSI 认可的开源许可**，而是「源码公开 + 非商业使用」。
+
+### 12.2 第三方组件（各自许可，不受上述限制）
+
 | 组件 | 许可 | 说明 |
 |---|---|---|
-| **本项目脚本与文档** | MIT | 见 [`LICENSE`](LICENSE) |
-| [llama.cpp](https://github.com/ggml-org/llama.cpp) | MIT | 本仓库 `llama.cpp\` 目录为其源码快照与编译产物，原作者版权归其所有 |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) | **MIT** | 本仓库 `llama.cpp\` 目录为其源码快照与编译产物，版权归原作者；**该部分可依 MIT 条款使用（含商业使用）** |
 | `Microsoft.VC143.CRT` / OpenMP 运行时 | 可再分发 | 来自 Visual Studio 官方 redist，用于 App-local 免安装分发 |
 | **模型权重** | 见模型页 | **不在本仓库内**，请遵守其原始许可 |
 
 模型权重由 [unsloth](https://hf-mirror.com/unsloth/Qwen3.6-35B-A3B-GGUF) 量化发布，
 使用前请自行确认其许可条款。
+
+### 12.3 项目标识
+
+`assets\` 下的 Logo 等图片资源版权归作者所有，**仅用于标识本项目**；
+不得移作他用，也不得用于暗示与本项目存在合作或授权关系。
 
 ---
 
@@ -530,4 +562,4 @@ python _维护脚本\gen_check.py     :: 重新生成 环境检查.bat
 **关键词**：消费级显卡跑大模型 · 显存混合卸载 · GPU offload · CUDA 后端 ·
 MoE 混合专家 · 30B~35B 本地大模型 · Token 生成速度 · AMD Ryzen · Zen 5 · DDR5 · EXPO ·
 双通道内存 · 内存带宽 · llama.cpp · GGUF · 量化 · AVX-512 · VNNI · VBMI ·
-Windows · OpenAI 兼容 API · 模型部署与调优
+Windows · OpenAI 兼容 API · 模型部署与调优 · **源码公开（非商业授权）**

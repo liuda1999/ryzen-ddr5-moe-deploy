@@ -60,6 +60,8 @@ SUB_DIRS = [
 # 单独收录的文件
 EXTRA_FILES = [
     os.path.join("llama.cpp", "models", "下载模型.md"),
+    # README 顶部引用的项目 Logo；不带的话包内 README 的图片会显示不出来
+    os.path.join("assets", "logo.jpg"),
 ]
 
 # 维护脚本目录里需要跳过的内容

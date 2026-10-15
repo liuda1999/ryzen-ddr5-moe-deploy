@@ -1,32 +1,111 @@
-MIT License
+非商业授权许可 · Non-Commercial License
+Copyright (c) 2026 刘鸿祥 (liuda1999). All rights reserved.
 
-Copyright (c) 2026 刘鸿祥 (liuda1999)
+本许可适用于本项目作者创作的内容，包括：
+  · 全部脚本（启动大模型.bat、环境检查.bat、开放局域网端口.bat、重新编译.bat、
+    _维护脚本\ 下的 Python 工具）
+  · 全部文档（README.md、使用说明.md、参数阶梯手册.md、部署说明.txt、验收报告.md 等）
+  · 项目标识（assets\ 下的 Logo 等图片资源）
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+「源码公开」指源代码可自由阅读、可自行修改供本人非商业使用，
+**不包含任何商业使用授权**。本许可不是 OSI 认可的开源许可。
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+════════════════════════════════════════════════════════════════════════════
+一、免费允许的行为（无需申请授权）
+════════════════════════════════════════════════════════════════════════════
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+1. 个人学习、研究、评估、测试与兴趣爱好使用；
+2. 非商业性质的个人自用、家庭自用（含在自己的电脑上搭建服务自用）；
+3. 为上述非商业用途而复制、修改、二次开发本项目；
+4. 非商业目的的再分发 —— 须完整保留本许可文件与版权声明，且不得暗示获得作者背书；
+5. 在论文、博客、视频、课程、技术分享中引用、介绍、评测本项目（注明出处即可）；
+6. 学校、科研机构、公益组织用于教学或非营利研究。
 
--------------------------------------------------------------------------------
-本项目包含的第三方组件：
+════════════════════════════════════════════════════════════════════════════
+二、必须事先取得作者书面授权的行为（即「商业用途」）
+════════════════════════════════════════════════════════════════════════════
 
-1. llama.cpp (https://github.com/ggml-org/llama.cpp) —— MIT License
+未经作者事先书面授权，**不得将本项目（含其任何修改版、衍生作品、部分内容）用于商业用途**，
+包括但不限于：
+
+1. 销售、出租、许可本项目或其修改版，或将其打包进任何收费产品/服务中；
+2. 随硬件设备、整机、云主机、SaaS 或 API 付费服务搭售、预装、捆绑；
+3. 部署在公司或组织的**经营性生产环境**中，或用于内部业务系统、对外承接的项目交付；
+4. 以本项目为基础提供收费的部署实施、技术支持、代搭建或托管服务；
+5. 用于收费培训、付费课程、商业咨询交付物；
+6. 以本项目为基础训练的模型、数据集或衍生产品的商业发行；
+7. 移除、遮蔽、篡改本许可文件或版权声明；
+8. 使用本项目的名称、Logo 或作者名义，暗示存在合作、代理、认证或背书关系。
+
+> 界定：只要使用行为服务于营利活动（无论直接收费还是间接引流、降本），
+> 均视为商业用途。
+
+════════════════════════════════════════════════════════════════════════════
+三、如何取得商业授权
+════════════════════════════════════════════════════════════════════════════
+
+需要商业使用时，请通过本仓库的 Issues 留言，或联系 GitHub 账号 @liuda1999，
+说明用途、部署规模与分发方式，取得书面授权后即可使用。
+
+════════════════════════════════════════════════════════════════════════════
+四、免责声明
+════════════════════════════════════════════════════════════════════════════
+
+本项目（含脚本、文档与随包分发的组件）按「现状」提供，不附带任何明示或默示的担保，
+包括但不限于对适销性、特定用途适用性、不侵权以及推理结果准确性的担保。
+
+在任何情况下，作者均不对因使用或无法使用本项目而产生的任何直接、间接、附带、
+特殊或后果性损害（包括但不限于数据丢失、业务中断、设备损坏、利润损失）承担责任，
+即使已被告知此类损害的可能性。
+
+使用者应自行评估并承担：模型输出内容的准确性与合规性、对外提供服务时的鉴权与
+网络安全风险、以及对第三方组件许可条款的遵守义务。
+
+════════════════════════════════════════════════════════════════════════════
+五、第三方组件（各自适用其原始许可，不受本许可限制）
+════════════════════════════════════════════════════════════════════════════
+
+1. llama.cpp —— MIT License
+   https://github.com/ggml-org/llama.cpp
    位于 llama.cpp\ 目录下的源码快照与编译产物，版权归其原作者所有。
+   该部分为 MIT 许可，可依 MIT 条款自由使用（含商业使用）。
 
-2. Microsoft Visual C++ Runtime (Microsoft.VC143.CRT / OpenMP)
+2. Microsoft Visual C++ Runtime（Microsoft.VC143.CRT / OpenMP）
    来自 Visual Studio 官方可再发行组件目录，依其原始条款随包分发。
 
-3. Qwen3.6-35B-A3B 模型权重 —— 不在本仓库内，遵循其原始许可。
+3. Qwen3.6-35B-A3B 模型权重 —— 不在本仓库内，遵循其原始许可，请自行确认。
+
+> 本许可的限制仅针对本项目作者创作的内容（脚本、文档、标识）。
+> 若你只使用 llama.cpp 本身，则不受本许可约束。
+
+════════════════════════════════════════════════════════════════════════════
+ENGLISH SUMMARY (for reference only; the Chinese text above prevails)
+════════════════════════════════════════════════════════════════════════════
+
+This project is source-available, NON-COMMERCIAL software. It is not an
+OSI-approved open-source license.
+
+YOU MAY, free of charge and without asking: read, run, study, copy, modify and
+redistribute this project for personal, educational, academic and other
+non-commercial purposes, provided this license and copyright notice are kept
+intact.
+
+YOU MAY NOT, without prior written permission from the author, use this
+project or any derivative work for any commercial purpose, including: selling
+or licensing it, bundling it with hardware, cloud, SaaS or paid API services,
+using it in a commercial production environment or for paid client delivery,
+offering paid deployment/support services, or using its name/logo to imply
+endorsement.
+
+TO OBTAIN A COMMERCIAL LICENSE: open an issue in this repository or contact
+GitHub user @liuda1999.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. IN NO EVENT
+SHALL THE AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING
+FROM THE USE OF THE SOFTWARE.
+
+THIRD-PARTY COMPONENTS are licensed under their own terms and are NOT affected
+by the restrictions above. In particular, llama.cpp (bundled under llama.cpp\)
+is MIT-licensed by its original authors.
+
+Commercial use is only permitted with prior written authorization from the author.
