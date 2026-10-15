@@ -1,0 +1,117 @@
+================================================================================================
+Qwen3.6-35B 本地大模型 —— 分发包清单
+================================================================================================
+生成时间：2026-10-15 19:03:39
+源目录  ：E:\llm-cpp
+文件数  ：66      总大小：22.16 GB（22.16 GB）
+
+格式说明：每行三列，用 Tab 分隔 —— 相对路径 / 精确字节数 / SHA256。
+          路径前带 * 的是"可选文件"：分发包不带它时不算缺件。
+          SHA256 列显示 (未计算) 表示只校验大小（模型文件太大）。
+          本文件自身不参与校验。
+
+Git 仓库说明：
+  本清单描述的是【完整分发包】，包含 21.3 GB 的模型文件。
+  GitHub 仓库出于体积原因不含模型与构建中间产物，
+  因此在仓库副本里执行校验会提示模型缺失 —— 这是预期结果。
+  仓库使用者请按 README.md 中的链接自行下载模型。
+
+校验方法：把本文件连同项目一起拷到目标机，然后运行
+    python _维护脚本\verify_package.py
+  或用系统自带命令逐个核对：certutil -hashfile "<文件>" SHA256
+
+------------------------------------------------------------------------------------------------
+【1】根目录必需文件
+------------------------------------------------------------------------------------------------
+启动大模型.bat	31837	ad805bd907c98227d7dd4ba24f1d239f3f6528763ba15f739881c86bffd156a7
+环境检查.bat	9895	12ff95e9054be2955b4c1322c8ddd4b9bcc2c455343b2bceaec2584c5513dcc4
+开放局域网端口.bat	2638	68b957a6102697fec7a30035e9dfda7a1b6bf26c3ac12311429d60b771cbebed
+README.md	14131	1112c070ffa4b1710896d4c8af42c2c7121a0724c020d45393d1034e95279b5d
+使用说明.md	16059	dee6283c1dd7e6d7355e881135f184fad66f84e84ab75aada68b9276b454a9e6
+参数阶梯手册.md	13777	84533bd14dac9a52065a6c40fad873c42b094db0b09540ad44fa750ddb9cab85
+部署说明.txt	20534	550ffc3238637041c07ec731d8ab22302256b068d4af867cb8c47ca2b8d600d1
+
+------------------------------------------------------------------------------------------------
+【2】根目录可选文件（按需带上）
+------------------------------------------------------------------------------------------------
+*重新编译.bat	2606	682660bfd5de64b1688c83568d49cc0967c3ae5b53d12f7ffabf4685856655c9
+*验收报告.md	15193	eb5e4d058e7888d2f6a86b0437259051dc5ac78ed1109bee24f6e8c81f5979e1
+*llama.cpp\models\下载模型.md	3725	0c33f9fe0ae580bda9069c6af53a4a69ba55d2914619872bda6d243b6c735802
+
+------------------------------------------------------------------------------------------------
+【3】运行产物目录（整包必需，含随包附带的 VC++ 运行时）
+------------------------------------------------------------------------------------------------
+llama.cpp\build-zen5\bin\concrt140.dll	324208	2405355f0a58067b258f8df33c327e3a3d716eaac5a3a5aebb757842d85bd376
+llama.cpp\build-zen5\bin\ggml-base.dll	676864	f9b31c992289667f64d3a7bc4863acb2e06da80210e7efed98cb7fe1e54f0a0a
+llama.cpp\build-zen5\bin\ggml-cpu-alderlake.dll	1068032	698537a6659ee841493b837f1ad65a68c622d011156d986e08833a25362b7b3b
+llama.cpp\build-zen5\bin\ggml-cpu-cannonlake.dll	1172992	22410c6fe41be77d857d362808d224b6004aa6bccefe27611984c4e1d54b533e
+llama.cpp\build-zen5\bin\ggml-cpu-cascadelake.dll.disabled	1174016	2eb11de4cad62d41dc8a5159bfb740819f3d47aa16429706582c1b8797114644
+llama.cpp\build-zen5\bin\ggml-cpu-haswell.dll	1069568	58f29351cbda2ed6c7caf7240cf7afde564715e9e51bab561250e5526a598202
+llama.cpp\build-zen5\bin\ggml-cpu-icelake.dll	1174016	e4c9fddc87efb7fd76fc39c2c1f088d06e05528046a73e0e1c98bc7517293460
+llama.cpp\build-zen5\bin\ggml-cpu-sandybridge.dll	1074176	8d4eb469c25b6264b9f190260fd3f9f80d4e4fa7bcf317e6360b10620abbb614
+llama.cpp\build-zen5\bin\ggml-cpu-skylakex.dll	1172480	9f82e50bd2a4d40d679e85191decafc6c10efadc07e1795a7882d6998c37b2c8
+llama.cpp\build-zen5\bin\ggml-cpu-sse42.dll	840192	7c1b8902f19d580cb614662c469d8c97ac12ebfafe786c6480d6d594fd82383e
+llama.cpp\build-zen5\bin\ggml-cpu-x64.dll	841216	16dc63f8e90471ddf784c09a35398be00cbe9b23c32f5e8d0db1d78c85d19609
+llama.cpp\build-zen5\bin\ggml.dll	60416	d8e90c39b9445c5694907f86c70b42d3fd6ff09f469b0fccfc55a15fbd79715b
+llama.cpp\build-zen5\bin\llama-batched-bench-impl.dll	131072	a40a5d81b7f88def2def9eff3f433b842f7031bb62cc298c40212bd73091684e
+llama.cpp\build-zen5\bin\llama-batched-bench.exe	10752	3defa940eeb8b5580890881ee714072fba736c4ad7961a2dec37fcb34a48a8d2
+llama.cpp\build-zen5\bin\llama-bench-impl.dll	908800	39ec44c7599fe75a58947ecd884626a5dfd707a40cdcc81658d68ca2a61419ed
+llama.cpp\build-zen5\bin\llama-bench.exe	10752	27096dcc1db84a737d0528eb0f520ce881ff40a25f93b5b63e532ed00046b5f0
+llama.cpp\build-zen5\bin\llama-cli-impl.dll	877568	2edbe542c1613a139e64fe6262a75a55869c84f9702822c7466cfbba62812a73
+llama.cpp\build-zen5\bin\llama-cli.exe	10752	6404b7b2457b1de4d867ca44f1a9f7a63b365253c32249058084d0d521d0fe43
+llama.cpp\build-zen5\bin\llama-common.dll	8644608	15a177964ad4656b0189420f552b49a021943ebf1346b734a178e1cc84b40efe
+llama.cpp\build-zen5\bin\llama-completion-impl.dll	334336	b87d70921b6836798bc382b2deebfdd43038d221a42ab5a8b196ce18b556146a
+llama.cpp\build-zen5\bin\llama-completion.exe	10752	8e817886c986afa467a4df6328aac0e3f19c4f66bca9b5ea181285dc83734538
+llama.cpp\build-zen5\bin\llama-fit-params-impl.dll	107008	5f90555c7a669a4e0d2521f9b25a085a2d15ecfb7d732998e99b4275986d2728
+llama.cpp\build-zen5\bin\llama-fit-params.exe	10752	e680a5520b465a95553d186d29cb16ab8f2ed829cc230577dab7b98f5734aa62
+llama.cpp\build-zen5\bin\llama-gemma3-cli.exe	26624	a8a8614f01ece2fea909d06e758f9ee906a440e883a47f590ce98d2b82c450ef
+llama.cpp\build-zen5\bin\llama-gguf-split.exe	49664	15f8bb5559b4dbc9f2c4e42b08ca5e8bacdc33c53284e3f7ff0a0b6a3b4e10d1
+llama.cpp\build-zen5\bin\llama-imatrix.exe	194048	34010ce3db69c1e740de178e46481ae0c656f7e30683b45709aefda69411c253
+llama.cpp\build-zen5\bin\llama-llava-cli.exe	26624	a8a8614f01ece2fea909d06e758f9ee906a440e883a47f590ce98d2b82c450ef
+llama.cpp\build-zen5\bin\llama-minicpmv-cli.exe	26624	a8a8614f01ece2fea909d06e758f9ee906a440e883a47f590ce98d2b82c450ef
+llama.cpp\build-zen5\bin\llama-mtmd-cli.exe	77312	b3c957e876f7a183cd7d25eb654376d755c9b4b864eb52d820154c87897bb9d0
+llama.cpp\build-zen5\bin\llama-mtmd-debug.exe	44544	382b55066ea72f9cbbbf2d2edae1a5bf96a863d997333538a600ad22a5dbdbc5
+llama.cpp\build-zen5\bin\llama-perplexity-impl.dll	346112	5a38be18ddff7ea214bf870dbed903c9359af82844c915a4edcd8eca7b4c4669
+llama.cpp\build-zen5\bin\llama-perplexity.exe	10752	6990c5cad6a67c6047cd168c31bceb867d8a62bf39ba778a4fc80ffa0edfde08
+llama.cpp\build-zen5\bin\llama-quantize-impl.dll	331776	e6ed9aa009de91a50eef189fe337a982948e0ccd15fe5eb7f6ddd3c7e66c2438
+llama.cpp\build-zen5\bin\llama-quantize.exe	10752	b81716999787c340ca4c2fe6315d20745277cf2bf56945a0d8269c2e12660910
+llama.cpp\build-zen5\bin\llama-qwen2vl-cli.exe	26624	a8a8614f01ece2fea909d06e758f9ee906a440e883a47f590ce98d2b82c450ef
+llama.cpp\build-zen5\bin\llama-results.exe	38400	f3e693fbc63272d0d23edb9043e821d66d40f6164ee3e8352653de225ee71353
+llama.cpp\build-zen5\bin\llama-server-impl.dll	3446784	1b68b80a67993fe8a2a9f9a9a2d81f5be4dfe5353ae0859b1cf000aa5ef8bae3
+llama.cpp\build-zen5\bin\llama-server.exe	10752	4adde13e713e1cc673c2637fab8e8065c9822923dbb770bfe8052ab332b4faff
+llama.cpp\build-zen5\bin\llama-tokenize.exe	52224	59753af3a854f21db9f996d7726a6e8558f092f29cc7cd136c99b254e270fc51
+llama.cpp\build-zen5\bin\llama-tts.exe	34304	5a0a368933eb7fc7ef05afd76bad11fae31bf6c05fd51184218bcfb11be51561
+llama.cpp\build-zen5\bin\llama.dll	2938880	61e919087612160ea69543c2c2b911876745d5c22d16f11d32ecc127e2a43f7e
+llama.cpp\build-zen5\bin\llama.exe	55296	0115fe1ff5427a00bc1a1bd55fc9c687213d7bc400468648c34675250eb8cf5a
+llama.cpp\build-zen5\bin\msvcp140.dll	557728	0f885b509a685d2bbfa652fed26b5fb31d88fbdab0a978c641d1c7b8aa460aa9
+llama.cpp\build-zen5\bin\msvcp140_1.dll	35952	bfad5aef4c63a669e3c140655cdfdf395b6c979b400a447bd5dcb65ed8826c3d
+llama.cpp\build-zen5\bin\msvcp140_2.dll	280200	3ea06f0ee098b4823cb79599df3780e7f23cce52c19aac31d2a0d47efe33a5e9
+llama.cpp\build-zen5\bin\msvcp140_atomic_wait.dll	50304	640b2aefced484d0368eea5bdd06addd0658a3a70a49256e560d6923b404a479
+llama.cpp\build-zen5\bin\msvcp140_codecvt_ids.dll	31872	f2069a52880ec885ee7f0511186100eb7fada0411a2b4948fafea7735b878a18
+llama.cpp\build-zen5\bin\mtmd.dll	2454016	5814ab63cc68a4591c6c928309b26419b9238c49c188f3c00aa2e3f92cb6c2ae
+llama.cpp\build-zen5\bin\vccorlib140.dll	352384	19839407c3fdbc824e5bce189bf68ddf8097f12ec28b757797ffa0415c144ddd
+llama.cpp\build-zen5\bin\vcomp140.dll	193152	55aba23cdcd6484fbb06f4155b8ca75adfce7a881f10afd0c49457165e677164
+llama.cpp\build-zen5\bin\vcruntime140.dll	124544	d5e4d9a3e835fa679450145d6a7d94e36573a509317111904d9b3712c30d9066
+llama.cpp\build-zen5\bin\vcruntime140_1.dll	49792	1f2d41c4aa5db0bc33ebf7b66d72943a817d7ce6cbe880502a9403823633093f
+llama.cpp\build-zen5\bin\vcruntime140_threads.dll	38528	219915cf20822f34d5e7c1fdd4e21ae7f3396881096c51036225fb8f84b47afa
+llama.cpp\build-zen5\bin\verify-isa.exe	141312	cfd42716d667a64aa370d3367666c69d1044f693d8ea849965905a85fc0a7aaf
+
+------------------------------------------------------------------------------------------------
+【4】模型文件（必需）
+------------------------------------------------------------------------------------------------
+llama.cpp\models\Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf	22853663008	(未计算)
+llama.cpp\models\mmproj-BF16.gguf	902822528	(未计算)
+
+------------------------------------------------------------------------------------------------
+【5】不需要打进包的内容
+------------------------------------------------------------------------------------------------
+  - llama.cpp 下的源码目录（src / ggml / tools / examples / docs 等）—— 运行不需要
+  - llama.cpp\build（早期 NATIVE 构建，约 387 MB）
+  - llama.cpp\build-zen5 下除 bin 之外的中间产物
+  - logs\（运行日志）
+  - api-key.txt（建议不带，目标机首次启动会自动生成新密钥）
+  - _旧脚本备份\ 、 _维护脚本\_历史补丁\
+
+================================================================================================
+合计：66 个文件，22.16 GB
+================================================================================================

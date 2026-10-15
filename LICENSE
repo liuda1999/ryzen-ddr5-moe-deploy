@@ -1,0 +1,32 @@
+MIT License
+
+Copyright (c) 2026 刘鸿祥 (liuda1999)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-------------------------------------------------------------------------------
+本项目包含的第三方组件：
+
+1. llama.cpp (https://github.com/ggml-org/llama.cpp) —— MIT License
+   位于 llama.cpp\ 目录下的源码快照与编译产物，版权归其原作者所有。
+
+2. Microsoft Visual C++ Runtime (Microsoft.VC143.CRT / OpenMP)
+   来自 Visual Studio 官方可再发行组件目录，依其原始条款随包分发。
+
+3. Qwen3.6-35B-A3B 模型权重 —— 不在本仓库内，遵循其原始许可。

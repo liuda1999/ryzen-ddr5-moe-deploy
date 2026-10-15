@@ -1,0 +1,343 @@
+=====================================================================
+ llama.cpp 本地部署交付摘要（Windows 原生 / 仅 CPU 推理 / 不使用显卡）
+先看这个 -> 使用说明.md（面向使用者的安装、依赖、路径与排查说明）
+ 重点：AVX-512 完整启用（含 VNNI / VBMI）
+=====================================================================
+源码：ggml-org/llama.cpp（官方仓库 master，版本 0.6.0-dev）
+硬件：AMD Ryzen 9 9950X（Zen 5，16 物理核 / 32 逻辑核）+ 61.6 GB 内存
+      <-- 换到 Intel 平台请先看《参数阶梯手册.md》的"平台声明"：
+          无需重新编译，但档位速度表与线程数需按新 CPU 重定。
+日期：2026-10-14（AVX-512 专项复核后更新）
+
+
+---------------------------------------------------------------------
+1) 编译完成的 llama.cpp 工具链路径
+---------------------------------------------------------------------
+  源码根目录：E:\llm-cpp\llama.cpp\
+  产物目录：  E:\llm-cpp\llama.cpp\build-zen5\bin\        <-- 当前使用
+  回退目录：  E:\llm-cpp\llama.cpp\build\bin\             <-- 早期 NATIVE 单变体构建（保留）
+
+  核心可执行文件（均已生成）：
+    - llama-cli.exe      命令行交互 / 推理
+    - llama-server.exe   OpenAI 兼容 HTTP 服务
+    - llama-bench.exe    基准测试
+
+  CPU 后端变体（9 个 DLL，运行时自动择优加载）：
+    ggml-cpu-x64 / sse42 / sandybridge / haswell
+    ggml-cpu-skylakex    AVX-512
+    ggml-cpu-cannonlake  AVX-512 + VBMI
+    ggml-cpu-cascadelake AVX-512 + VNNI        （已改名为 .disabled，见第 2 节）
+    ggml-cpu-icelake     AVX-512 + VBMI + VNNI （当前命中）
+    ggml-cpu-alderlake   AVX2 + AVX-VNNI
+
+
+---------------------------------------------------------------------
+2) 编译配置摘要
+---------------------------------------------------------------------
+  构建类型：      Release
+  编译器：        MSVC (cl) 19.44.35225 [Visual Studio 2022 Community 17.14]
+  工具链：        MSVC 14.44.35207 + Windows SDK 10.0.26100.0
+  生成器：        Ninja
+                  （本环境安全策略拦截 vcvarsall/MSBuild，VS 生成器不可用；
+                    Ninja 调用同一 MSVC 工具链，产物等价。你本机可用
+                    build-from-source.bat 以 VS 生成器重编。）
+
+  关键配置：      GGML_CPU_ALL_VARIANTS=ON   （启用 AVX-512 扩展的唯一途径）
+                  GGML_BACKEND_DL=ON         （变体以动态后端加载）
+                  BUILD_SHARED_LIBS=ON
+                  GGML_NATIVE=OFF            （由 ALL_VARIANTS 取代）
+
+  启用的后端：    仅 CPU（无任何 GPU 后端）
+  关闭的后端/选项：CUDA=OFF, Vulkan=OFF, OpenCL=OFF, Metal=OFF, HIP=OFF,
+                  LLAMA_OPENSSL=OFF(HTTPS), UI/预编译UI=OFF,
+                  LLAMA_BUILD_TESTS=OFF, LLAMA_BUILD_EXAMPLES=OFF
+  工具开关：      LLAMA_BUILD_SERVER=ON
+
+  【为什么必须走 ALL_VARIANTS】
+    ggml_add_cpu_backend_variant() 会先把所有 ISA 开关重置为 OFF 再按变体重设，
+    因此命令行直接传 -DGGML_AVX512_VNNI=ON 会被冲掉，不生效；
+    只有 ALL_VARIANTS 才会注册带 VNNI/VBMI 的 icelake 变体。
+
+  【变体择优的一处上游细节】
+    上游对 VBMI 只定义了 __AVX512VBMI__（启用代码路径），
+    未定义参与评分的 GGML_AVX512_VBMI，导致 icelake 与 cascadelake 同分，
+    而 cascadelake 按字母序先命中（不含 VBMI）。
+    已用 CPUID 实测确认本机 VBMI=1（硬件支持），故将
+      ggml-cpu-cascadelake.dll -> ggml-cpu-cascadelake.dll.disabled
+    使 icelake（AVX-512 + VBMI + VNNI）成为最高分变体。
+    此操作为改名而非删除，随时可改回。
+
+
+---------------------------------------------------------------------
+3) 验证结果
+---------------------------------------------------------------------
+  [二进制可运行]
+    llama-cli.exe    --version -> version: 0.6.0-dev
+    llama-server.exe --version -> built with MSVC 19.44.35225.0 for Windows AMD64
+    llama-bench.exe  --version -> 同上
+
+  [AVX-512 已完整启用]（调用官方 API llama_print_system_info()，
+   未加载模型、非基准测试，仅查询后端与指令集）：
+      load_backend: loaded CPU backend from ...\ggml-cpu-icelake.dll
+      CPU : SSE3=1 | SSSE3=1 | AVX=1 | AVX2=1 | F16C=1 | FMA=1 | BMI2=1
+            | AVX512=1 | AVX512_VBMI=1 | AVX512_VNNI=1
+            | LLAMAFILE=1 | OPENMP=1 | REPACK=1
+    => AVX-512F + VNNI + VBMI 全部启用，仅 CPU 后端（无任何 GPU 后端）。
+
+  [CPUID 实测特性位]（check-cpuid.exe，只读特性位、不读型号）
+    AVX512F/DQ/IFMA/CD/BW/VL = 1
+    AVX512VBMI = 1  AVX512VBMI2 = 1  AVX512VNNI = 1
+    AVX512BITALG = 1  AVX512VPOPCNTDQ = 1
+    AVX512BF16 = 1（硬件支持，但见下方限制）
+    AMX-* = 0（x86 无 AMX，属正常）
+
+  [BF16 的已知限制]
+    CPU 支持 AVX512_BF16，但 MSVC 不提供 BF16 intrinsics（上游明确注释：
+    "MSVC 2022 doesn't support BF16 intrinsics without /arch:AVX10.1"），
+    故含 BF16 的 zen4/cooperlake 变体在 MSVC 下被上游跳过；本机亦未安装
+    clang-cl，无法走 -mavx512bf16。
+    影响面：BF16 主要服务 bf16 数据类型计算，对 Q4_K_M 等 GGUF 量化推理影响很小；
+    关键收益来源 VNNI（int8 点积）与 VBMI（字节重排）已启用。
+
+  [复现方式]
+    E:\llm-cpp\verify-isa.cpp   —— 打印运行时后端与指令集
+    E:\llm-cpp\check-cpuid.cpp  —— 打印 CPUID 特性位
+    cl /nologo /EHsc /utf-8 /Fe:...\verify-isa.exe verify-isa.cpp
+
+
+---------------------------------------------------------------------
+4) 使用说明（如何调用工具，不涉及具体模型）
+---------------------------------------------------------------------
+  帮助 / 版本：
+    E:\llm-cpp\llama.cpp\build-zen5\bin\llama-cli.exe     --help
+    E:\llm-cpp\llama.cpp\build-zen5\bin\llama-server.exe  --help
+
+  线程 / 上下文策略（重要，已由 8 组实测矩阵确定，见第 6 节）：
+    本机 16 物理核 / 32 逻辑核。不使用全部 32 线程。
+    速度最优：THREADS=24（12 物理核） + CTX=12288（12K） -> 13.28 t/s
+    当前默认：THREADS=24             + CTX=16384（16K） -> 12.73 t/s
+              （慢 4%，但上下文容量多 33%，综合最实用）
+        - 28 线程 prefill 快约 2%，但生成反而慢 0.1~0.2 t/s（内存带宽争用）
+        - 上下文 12K->16K 降 4%，16K->24K 降 7%，24K->32K 降 16%
+    脚本已内置 THREADS=24 / CTX=16384，改这两个变量即可换档。
+    全部档位数据与取舍：E:\llm-cpp\参数阶梯手册.md
+
+  快捷开关（推荐，工作区根目录，全中文命名）：
+    E:\llm-cpp\启动大模型.bat              二合一开关：未运行则启动，已运行则关闭
+                                        （双击即可，按提示选档位，默认实用档）
+    E:\llm-cpp\启动大模型.bat start 2      直接以实用档（16K/24 线程）启动
+    E:\llm-cpp\启动大模型.bat stop         关闭服务并释放内存
+    E:\llm-cpp\启动大模型.bat restart 3    以长文档档（24K/24 线程）重启
+    E:\llm-cpp\启动大模型.bat status       只看状态（PID / 内存 / 档位 / 地址）
+    E:\llm-cpp\启动大模型.bat check        只做环境与安全检查
+
+    E:\llm-cpp\环境检查.bat                全量体检，并给出各档位内存可行性
+    E:\llm-cpp\参数阶梯手册.md             参数阶梯手册（全部实测档位，改配置前先看它）
+
+  启动脚本内置的检查（出现 [失败] 会直接阻止启动）：
+    1  可执行程序 llama-server.exe / llama-cli.exe
+    2  依赖 DLL：llama / llama-common / ggml / ggml-base
+    3  CPU 后端变体：确认 icelake(AVX-512+VNNI+VBMI) 生效；
+       若发现 cascadelake 抢占会自动改名为 .disabled
+    4  模型文件存在且大小合理（完整约 21.3 GB）
+    5  多模态投影 mmproj（缺失只警告，退化为纯文本）
+    6  端口 35035 是否被别的进程占用（并打印占用者进程名）
+    7  磁盘剩余空间（低于 2 GB 拒绝启动）
+    8  是否已有重复实例（防止重复启动）
+    9  可用内存是否够本档位：不够直接拒绝，偏紧时二次确认
+
+  深度思考（推理链）开关 —— 除档位外对响应速度影响最大的开关：
+    默认关闭。关闭时直接作答；开启时先输出一段思考内容（reasoning_content）。
+    命令行：启动大模型.bat start 2 nothink   关闭（默认）
+            启动大模型.bat start 2 think     开启
+    交互模式选完档位后会询问一次，直接回车 = 关闭。
+    同一问题实测（17×23=？）：
+      关闭 -> 4 token、约 0.3 秒出结果
+      开启 -> 241 token、约 15 秒（思考过程 492 字符）
+      两者答案一致，差别只在要不要先把推理写出来，关闭可省约 98% 输出 token。
+    当前生效的模式可用 启动大模型.bat status 查看（也记录在 logs\server.pid 末位）。
+
+  服务运行方式：无窗口静默后台运行。
+    启动后不会出现任何服务窗口（任务栏也看不到），进程完全独立于脚本窗口，
+    关闭启动脚本的窗口不会影响服务。日志照旧写到 logs\。
+    实现方式：WScript.Shell 的 Run 以隐藏窗口风格（0）、不等待（false）拉起
+    一个 cmd 包装进程完成启动与日志重定向。详见 _维护脚本\说明.md。
+
+  静默模式（供计划任务 / 开机自启调用：不等待按键、不打开浏览器）：
+    E://llm-cpp//启动大模型.bat start 2 quiet
+
+  启动成功的判定标准（避免假成功）：
+    脚本不是"端口一监听"就报成功，而是轮询 http://127.0.0.1:35035/health，
+    直到返回 200（模型真正加载完）才提示启动成功。
+    实测：16K/24 线程档，从启动到就绪约 15 秒，生成速度约 15.2 t/s（短提示）。
+
+  局域网访问（已开启，需密钥）：
+    服务绑定 0.0.0.0，同网段设备可访问，但必须携带密钥。
+    入口：  http://192.168.0.100:35035
+    密钥：  E:\llm-cpp\api-key.txt   （首次启动自动生成，可手工加多行做轮换）
+    调用示例：
+      curl -H "Authorization: Bearer <密钥>" ^
+           http://192.168.0.100:35035/v1/chat/completions ^
+           -H "Content-Type: application/json" ^
+           -d "{\"messages\":[{\"role\":\"user\",\"content\":\"你好\"}]}"
+      Python(openai 库)：
+        from openai import OpenAI
+        c = OpenAI(base_url="http://192.168.0.100:35035/v1", api_key="<密钥>")
+    防火墙：首次开放需以管理员身份运行 开放局域网端口.bat（选 1 放行 TCP 35035）。
+           只想本机可用时，把 启动大模型.bat 里的 HOST 改回 127.0.0.1 并重启。
+
+  密钥机制与安装路径（实测结论）：
+    api-key.txt 支持多行，每行一个密钥（井号开头是注释），脚本会把它们用逗号
+    拼接后以 --api-key 传值给服务，因此项目可以放在含中文的目录下。
+    之所以不用 llama-server 的 --api-key-file：实测该参数打不开含中文的路径
+    （报 failed to open file），而 --model 用同样的中文路径却正常，属该参数自身限制。
+    建议：虽已验证中文路径可用，仍推荐装到纯英文路径，避免个别工具的编码坑。
+
+  重新编译（你本机，Visual Studio 生成器）：
+    双击  E:\llm-cpp\重新编译.bat
+    产物  E:\llm-cpp\llama.cpp\build-vs\bin\Release\
+
+  旧版英文脚本已归档：E:\llm-cpp\_旧脚本备份\（llm.bat / check-env.bat / run-llama-*.bat）
+
+  下一阶段：大模型由你提供；届时放入模型并配置启动参数即可推理。
+
+
+---------------------------------------------------------------------
+工具链前置项（已就绪）
+---------------------------------------------------------------------
+  - Git 2.55.0：已在 PATH
+  - CMake 4.4.4 / Ninja 1.13.2：已加入用户 PATH（重开终端后生效）
+  - Visual Studio 2022 Community + MSVC + Windows SDK：已安装
+
+
+=====================================================================
+5) 模型部署验证（Qwen3.6-35B-A3B）
+=====================================================================
+  模型来源：\\Nas\d盘\03-AI资源\GGUF-大模型备份\Qwen3.6-35B-A3B-MTP-GGUF
+  已拉取到本地 E:\llm-cpp\llama.cpp\models\：
+    - Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf   21.28 GB（主模型）
+    - mmproj-BF16.gguf                   0.84 GB（视觉投影，多模态）
+
+  模型元数据（gguf_info.py 解析）：
+    general.architecture = qwen35moe      -> llama.cpp 支持（LLM_ARCH_QWEN35MOE）
+    block_count = 41, expert_count = 256, expert_used_count = 8（MoE 稀疏激活）
+    context_length = 262144（原生）      -> 必须显式限制，否则 KV cache 过大
+
+  [纯文本推理 - llama-cli]
+    命令：-m <模型> -p "你好，请用一句话介绍你自己。" -n 96 -t 24 -tb 24 -ngl 0 -c 4096 -st
+    结果：exit 0，正常生成并自动退出
+          Prompt: 36.9 t/s | Generation: 13.3 t/s
+
+  [HTTP 服务 - llama-server，含多模态]
+    命令：-m <模型> --mmproj mmproj-BF16.gguf -t 24 -tb 24 -ngl 0 -c 4096
+    结果：loaded multimodal model ... mmproj-BF16.gguf
+          listening on http://127.0.0.1:35035
+          /health -> {"status":"ok"}
+          /v1/models -> capabilities: ["completion", "multimodal"]
+          /v1/chat/completions -> prompt 53.9 t/s, generation 13.55 t/s
+                                  （模型自述为 Qwen / 通义千问）
+
+  [线程设置 - 已按 12 物理核心 / 24 逻辑线程 修正]
+    最初误设为 12 条线程（仅 6 个物理核的算力），已更正：
+      --threads 24 --threads-batch 24
+    实测对比（同一提示，非严格控制变量）：
+      12 线程 -> Generation 约 11.5 t/s
+      24 线程 -> Generation 约 13.3 ~ 13.6 t/s
+    未用满 32 逻辑线程，避免同步开销与内存带宽争用。
+
+  [使用注意]
+    - 该模型默认启用思考链（reasoning），会先输出 reasoning_content 再给答案；
+      若 token 预算较小可能只看到思考过程（finish_reason: length）。
+      需要直接回答时：增大 max_tokens，或用 --reasoning off 关闭思考。
+    - 上下文已限制为 12288（12K，实测生成最快档）；改 --ctx-size 可换档。
+    - 纯 CPU 推理，--n-gpu-layers 0。
+
+
+=====================================================================
+6) 上下文 × 线程 矩阵基准（8 组，2026-10-15）
+=====================================================================
+  目的：在"生成体感可接受"的区间内，找出每秒生成 token 最多的组合。
+  方法：每次以指定 ctx / 线程重启 llama-server，把上下文填满到
+        (ctx - 384 - 128)，关闭思考链，要求生成约 300 字正文，
+        从服务端日志读取 prompt eval / eval 权威计时。
+  原始数据：E:\llm-cpp\matrix_results.csv
+
+  ┌────────┬────────┬──────────────┬──────────────┬─────────────┐
+  │ 上下文 │ 线程   │ prefill t/s  │ 生成 t/s     │ 排名        │
+  ├────────┼────────┼──────────────┼──────────────┼─────────────┤
+  │  12288 │ 24     │   100.93     │  13.28 ★最优 │    1        │
+  │  13312 │ 24     │    99.51     │  13.27       │    2        │
+  │  12288 │ 28     │   103.12     │  13.21       │    3        │
+  │  13312 │ 28     │   102.01     │  13.05       │    4        │
+  │  14336 │ 24     │    99.05     │  13.05       │    4        │
+  │  14336 │ 28     │   100.93     │  12.90       │    6        │
+  │  16384 │ 24     │    97.09     │  12.73       │    7        │
+  │  16384 │ 28     │    99.02     │  12.56       │    8        │
+  └────────┴────────┴──────────────┴──────────────┴─────────────┘
+
+  结论：
+    1. 【生成速度冠军】12288 ctx + 24 线程 = 13.28 t/s
+       （与末位 16384/28 的 12.56 t/s 相差 5.7%）
+    2. 【线程】24 线程在 4 个上下文档位上全部优于 28 线程。
+       28 线程 prefill 更快（+2%），但生成更慢——MoE 生成阶段是
+       内存带宽瓶颈，线程越多争用越严重。
+    3. 【上下文】生成速度随上下文单调下降：12K→16K 共损失约 4.3%。
+    4. 【噪声提示】各组生成 token 数在 166~203 之间（模型自然停），
+       单次测量误差约 ±0.1 t/s；24 vs 28 的差值虽小，但 4 档位方向一致，
+       可判定为真实趋势而非噪声。
+
+  ------------------------------------------------------------------
+  附：大上下文实测（64K / 96K，均已通过但体感差，故弃用）
+  ------------------------------------------------------------------
+    65536 ctx / 28 线程：prompt 64578 token
+        prefill 60.83 t/s（耗时 1061.6s ≈ 17.7 分钟）
+        生成 21 token @ 4.28 t/s（每 token 233 ms）
+        大海捞针检索：命中 ✔   峰值内存 33.49 GB
+
+    98304 ctx / 28 线程：prompt 95703 token
+        prefill 44.56 t/s（耗时 2147.6s ≈ 35.8 分钟）
+        生成 21 token @ 2.45 t/s（每 token 408 ms）
+        大海捞针检索：命中 ✔   峰值内存 33.92 GB
+
+    结论：上下文越大，prefill 衰减越剧烈（100 → 60 → 44 t/s，
+    注意力计算随序列长度增长），且生成延迟从 75ms 升到 408ms/token。
+    纯 CPU 场景下 64K 以上不具备实用价值，故最终选定 12K 档。
+
+  相关文件：
+    E:\llm-cpp\_维护脚本\run_matrix.sh      矩阵测试驱动器（可改 CTXS/THREADS 重跑）
+    E:\llm-cpp\_维护脚本\bench_ctx.py       单组基准脚本
+    E:\llm-cpp\_维护脚本\chat_test.py       长上下文大海捞针测试
+    E:\llm-cpp\matrix_results.csv           原始结果
+
+
+=====================================================================
+7) prefill 性能实测（补充：排查"首次对话慢"）
+=====================================================================
+  背景：出现"服务启动后第一次对话要等 1~2 分钟"的反馈，专门做了排查。
+
+  一、先排除"冷启动惩罚"
+    约 1300 token 的 prompt 实测：
+      冷启动首次（新内容）：prefill 72.35 t/s（18.1 s）
+      热态  （换新内容）  ：prefill 70.34 t/s（18.7 s）
+    -> 两者几乎一致。不存在 mmap 导致的"首次访问磁盘"惩罚。
+
+  二、再排查调参空间（llama-bench, pp2048）
+    批大小 ubatch：512 -> 69.22 | 1024 -> 67.26 | 2048 -> 66.72   （默认已最优）
+    线程数       ：16  -> 70.38 | 24   -> 68.63 | 32   -> 47.21   （32 线程劣化 31%）
+    -> 默认配置就是最优点，没有可调空间。
+
+  三、真实原因（日志实证）
+    某客户端首次请求发送了 15865 token 的 prompt：
+      prompt eval time = 275652.04 ms / 15865 tokens (57.55 t/s)
+    prompt 几乎顶满 16K 上下文，prefill 耗时 275 秒。
+    来源通常是客户端注入的超长 system prompt / 工具定义 / 知识库片段。
+
+  四、思考模式与 prefill 无关（实测）
+    同一句 hello：nothink -> prompt_tokens 13；think -> 11
+    -> --reasoning 只影响生成阶段，不会撑长 prompt，也不影响 prefill。
+
+  结论：prefill 约 70 t/s 是本机 CPU + 内存带宽的硬上限；
+        "首次对话慢"由客户端 prompt 长度决定，服务端没有优化空间。
+        排查方法：看 logs\ 最新日志里的 "prompt processing, n_tokens = N"。
+
+=====================================================================
