@@ -60,11 +60,17 @@ echo         提示    icelake 变体缺失，需重新编译补齐（见上方 [失败] 项）
 echo.
 
 echo [4/10] 模型文件
+if not exist "%MODEL%" set "MODEL_MISS=1"
 call :CHK_FILE "%MODEL%"
 if exist "%MODEL%" (
-  for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[math]::Round((Get-Item -LiteralPath '%MODEL%').Length/1GB,2)"`) do set "MODEL_GB=%%a"
+  REM 注意：这里必须在 for 体内直接用 %%a 输出。若先 set 再 echo，由于括号块内的
+  REM       %VAR% 在整块解析时就展开，会拿到空值（踩过一次的坑）。
+  for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[math]::Round((Get-Item -LiteralPath '%MODEL%').Length/1GB,2)"`) do echo         大小 %%a GB（完整约 21.3 GB，明显偏小说明文件损坏）
+) else (
+  echo         下载地址见 README.md 的「模型下载」一节
+  echo         或本机文件 llama.cpp\models\下载模型.md
+  echo         下载后保持文件名不变，放入 llama.cpp\models\ 目录
 )
-if exist "%MODEL%" echo         大小 %MODEL_GB% GB（完整约 21.3 GB，明显偏小说明文件损坏）
 echo.
 
 echo [5/10] 视觉投影（多模态，缺失不影响纯文本）
@@ -179,7 +185,8 @@ echo.
 echo ============================================================
 if "%FAIL%"=="1" (
   echo   结论：检查未通过（有 [失败] 项），请先修复后再启动。
-  echo         缺少程序时请运行：重新编译.bat
+  if not exist "%BIN_DIR%\llama-server.exe" echo         缺少程序时：运行 重新编译.bat 重新编译
+  if "%MODEL_MISS%"=="1" echo         缺少模型时：按 README.md「模型下载」下载后放入 llama.cpp\models\
 ) else (
   if "%WARN%"=="1" (
     echo   结论：可以启动，但有 [警告] 项，建议留意上面提示。
