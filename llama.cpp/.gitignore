@@ -183,3 +183,13 @@ AGENTS.local.md
 # 上游生成的算子支持矩阵数据（约 39 MB）。是 `test-backend-ops ... > csv` 的产物，
 # 仅用于 scripts/create_ops_docs.py 生成 docs/ops.md，与编译、运行无关。
 /docs/ops/*.csv
+
+# ============================================================================
+# 本地调整（三）—— GPGPU 后端 DLL 不入库
+# ============================================================================
+# ggml-cuda.dll 是「按显卡架构编译」的：为 Pascal(sm_61) 编的版本在 RTX 30/40 上
+# 会报 no kernel image，反之亦然。把它塞进仓库等于只服务一部分显卡，而且体积不小
+# （单架构约 32 MB）。
+# 所以仓库只带「编译脚本」(_维护脚本/build-cuda-backend.bat) 与「自检」，
+# 用户按自己的卡自己编；确需分发时作为 GitHub Release 附件，而不是 git 内容。
+/build-zen5/bin/ggml-cuda*.dll

@@ -78,9 +78,21 @@ set "GPU_LAYERS="         REM -ngl 值：数字 / auto / all
 set "CPU_MOE="            REM all（全部专家留内存）或层数，如 41
 set "MOE_CACHE_MIB="      REM 专家显存缓存 MiB，0/留空=不用
 set "KV_OFFLOAD="         REM on / off；off = KV 留内存（省显存，适合小显存卡）
-REM auto 模式的两个阈值（MiB）：
-set "GPU_MIN_FREE_MIB=2560"   REM 空闲显存低于此值就不启用（2.5 GiB）
-set "GPU_KV_MIB=6144"         REM 空闲显存低于此值时把 KV 也放到内存
+REM auto 模式的参数（MiB）—— 取值来自 2026-10-15 在 GTX 1060 3GB 上的实测：
+set "GPU_MIN_FREE_MIB=1536"   REM 空闲显存低于此值就不启用（再低收益太小）
+set "GPU_LAYER_MIB=64"        REM 每层「非专家权重」约 64 MiB（本模型实测 2.53 GiB / 41 层）
+set "GPU_RESERVE_MIB=448"     REM 桌面占用 + KV/计算缓冲 + CUDA 上下文的总余量
+set "GPU_NLAYER=41"           REM 模型层数，用来给算出的层数封顶
+REM 层数是按「显卡总显存」算的，不是按 llama.cpp 报的空闲显存：
+REM   llama.cpp 的 free 会额外扣掉一份保留量（本卡报 2460，而实际可用约 2880），
+REM   用 total 算才能压榨到位。实测 32~41 层速度基本持平（生成 18~21 t/s），
+REM   所以这里取「压满但不超过模型层数」。
+REM   代价是没有余量：如果同时开着重度图形程序把桌面占用推高，仍可能越界分页
+REM   （分页后生成速度会掉到约 1/2.4）。想要留量就把 GPU_RESERVE_MIB 调大。
+REM 换模型时 GPU_LAYER_MIB 与 GPU_NLAYER 都要跟着改：
+REM   GPU_NLAYER   = 模型层数
+REM   GPU_LAYER_MIB = 模型里「非专家权重」总大小 ÷ 层数
+REM 前者可从 GGUF 元数据看到；后者可用 _维护脚本\gguf_tensor_stats.py 量。
 REM ============================================================
 
 REM quiet = 静默模式（供计划任务 / 开机自启调用：不等待按键、不打开浏览器）
@@ -198,6 +210,7 @@ echo   配置档位   %CUR_TIER_NAME% （上下文 %CUR_CTX% / 线程 %CUR_T%）
 call :SHOW_CUR_THINK
 echo   启动时间   %CUR_TIME%
 set "GPU_REQ=%CUR_GPU%"
+set "GPU_ARGS=%CUR_GPU_ARGS%"
 set "GPU_LOG_STAMP=%CUR_TIME%"
 call :SHOW_GPU_ACTUAL
 call :SHOW_ADDR
@@ -263,6 +276,7 @@ echo   配置档位   %CUR_TIER_NAME% （上下文 %CUR_CTX% / 线程 %CUR_T%）
 call :SHOW_CUR_THINK
 echo   启动时间   %CUR_TIME%
 set "GPU_REQ=%CUR_GPU%"
+set "GPU_ARGS=%CUR_GPU_ARGS%"
 set "GPU_LOG_STAMP=%CUR_TIME%"
 call :SHOW_GPU_ACTUAL
 call :SHOW_ADDR
@@ -496,7 +510,7 @@ exit /b 1
 :READY_OK
 call :GET_LAN_IP
 call :LOAD_KEY
->"%PID_FILE%" echo %SRV_PID%^|%TIER%^|%CTX%^|%THREADS%^|%STAMP%^|%THINK%^|%GPU_MODE%
+>"%PID_FILE%" echo %SRV_PID%^|%TIER%^|%CTX%^|%THREADS%^|%STAMP%^|%THINK%^|%GPU_MODE%^|%GPU_ARGS%
 echo.
 echo ============================================================
 echo   启动成功，服务已就绪
@@ -757,9 +771,10 @@ set "CUR_T="
 set "CUR_TIME="
 set "CUR_THINK=off"
 set "CUR_GPU=off"
+set "CUR_GPU_ARGS="
 set "CUR_TIER_NAME=未知档位"
 if not exist "%PID_FILE%" exit /b 0
-for /f "usebackq tokens=1-7 delims=|" %%a in ("%PID_FILE%") do (
+for /f "usebackq tokens=1-8 delims=|" %%a in ("%PID_FILE%") do (
   set "CUR_PID=%%a"
   set "CUR_TIER=%%b"
   set "CUR_CTX=%%c"
@@ -767,6 +782,7 @@ for /f "usebackq tokens=1-7 delims=|" %%a in ("%PID_FILE%") do (
   set "CUR_TIME=%%e"
   set "CUR_THINK=%%f"
   set "CUR_GPU=%%g"
+  set "CUR_GPU_ARGS=%%h"
 )
 if not defined CUR_THINK set "CUR_THINK=off"
 if not defined CUR_GPU set "CUR_GPU=off"
@@ -940,12 +956,13 @@ exit /b 0
 REM ============================================================
 REM  子程序：按模式组装 GPU 参数
 REM
-REM  auto 模式的主推组合是「--fit on --cpu-moe」：
-REM    --fit on       让 llama.cpp 自己按空闲显存决定卸载多少层
-REM                   （这是它的默认行为，只是旧版脚本用 --n-gpu-layers 0 压掉了）
-REM    --cpu-moe      把体积最大的 MoE 专家权重留在内存（占 88.1%，每 token 只用 8/256）
-REM    于是上显存的只有「每 token 必读」的注意力/稠密/输出等，实测仅 2.53 GiB
-REM  显存偏紧时再加 -nkvo，把 KV cache 也放回内存。
+REM  auto 模式的核心组合是「--n-gpu-layers N --cpu-moe」：
+REM    --cpu-moe      把体积最大的 MoE 专家权重留在内存
+REM                   （占模型 88.1%，每 token 只激活 8/256）
+REM    --n-gpu-layers 于是上显存的只有「每 token 必读」的注意力/稠密/输出等，
+REM                   本模型全量是 2.53 GiB；N 表示前 N 层上显存
+REM  为什么不用 --fit 自动决定 N：见 auto 分支里的实测说明（它会放弃，
+REM  然后把全部层塞进显存，速度反而掉到 1/2.4）。
 REM ============================================================
 :BUILD_GPU_ARGS
 set "GPU_ARGS=--n-gpu-layers 0"
@@ -961,17 +978,39 @@ exit /b 0
 :BGA_HAVE
 if /i "%GPU_MODE%"=="manual" goto :BGA_MANUAL
 REM ---------- auto ----------
+REM 这里刻意不用 --fit，原因见下方注释；改为自己按显存余量算卸几层。
+REM
+REM 为什么不用 --fit（2026-10-15 在 GTX 1060 3GB 上实测踩到）：
+REM   --cpu-moe 会设置「张量缓冲区覆盖」，而 --fit 一旦发现用户已设置覆盖
+REM   就直接放弃（日志原文：failed to fit params ... tensor_buft_overrides
+REM   already set by user, abort）。放弃之后 n_gpu_layers 落到「全部层」，
+REM   于是 42/42 层全塞进显存 —— 需要 3036 MiB，可用仅 2208 MiB，
+REM   WDDM 只能把显存分页到系统内存，生成速度从 14.6 掉到 6.1 t/s。
+REM
+REM 换成自己算，实测有效（16K 上下文、GTX 1060 3GB，生成速度 t/s）：
+REM   0 层 14.5 / 32 层 19.5 / 36 层 18.8 / 38 层 19.8 / 40 层 20.8 / 41 层 21.4
+REM   加 -nkvo（KV 留内存）只剩 14.9 —— 等于没收益，所以 KV 必须留在显存。
+REM   32 层往上速度基本持平，所以直接压到模型层数上限最划算。
+REM 层数按「显卡总显存」算，不是按 llama.cpp 报的空闲显存：
+REM   它的 free 会额外扣掉一份保留量（本卡报 2460，实际可用约 2880），
+REM   用 total 才算得满。代价是没留余量 —— 若同时开着重度图形程序把桌面
+REM   占用推高，仍可能越界分页（分页后速度掉到约 1/2.4）；想留量就调大
+REM   GPU_RESERVE_MIB。
 if %GPU_FREE_MIB% LSS %GPU_MIN_FREE_MIB% goto :BGA_SMALL
-set "GPU_ARGS=--fit on --fit-target 1024 --cpu-moe"
-set "GPU_STRATEGY=非专家权重上显存，专家权重留内存"
-if %GPU_FREE_MIB% LSS %GPU_KV_MIB% goto :BGA_NKVO
-exit /b 0
-:BGA_NKVO
-set "GPU_ARGS=%GPU_ARGS% -nkvo"
-set "GPU_STRATEGY=非专家权重上显存，专家与 KV 都留内存（显存偏紧）"
+if not defined GPU_TOTAL_MIB goto :BGA_SMALL
+set /a BGA_SPACE=%GPU_TOTAL_MIB% - %GPU_RESERVE_MIB%
+if %BGA_SPACE% LSS %GPU_LAYER_MIB% goto :BGA_SMALL
+set /a BGA_N=%BGA_SPACE% / %GPU_LAYER_MIB%
+if %BGA_N% LSS 1 goto :BGA_SMALL
+if %BGA_N% GTR %GPU_NLAYER% set /a BGA_N=%GPU_NLAYER%
+REM --parallel 1：只开一个并发槽。本地单人使用用不上多槽，而它让 KV cache
+REM 不再按 4 份分配 —— 实测 prefill 27.3 -> 33.5 t/s、生成 20.3 -> 21.4 t/s，
+REM 还少占一点显存。
+set "GPU_ARGS=--n-gpu-layers %BGA_N% --cpu-moe --parallel 1"
+set "GPU_STRATEGY=非专家权重上显存（%BGA_N% 层），专家留内存，单并发槽"
 exit /b 0
 :BGA_SMALL
-set "GPU_STRATEGY=纯 CPU（空闲显存 %GPU_FREE_MIB% MiB，低于门槛 %GPU_MIN_FREE_MIB% MiB）"
+set "GPU_STRATEGY=纯 CPU（空闲显存 %GPU_FREE_MIB% MiB，不足门槛 %GPU_MIN_FREE_MIB% MiB）"
 exit /b 0
 
 :BGA_MANUAL
@@ -1027,17 +1066,26 @@ REM  llama.cpp 会打印：
 REM    load_tensors: offloaded 41/41 layers to GPU
 REM ============================================================
 :SHOW_GPU_ACTUAL
-REM GPU_REQ 由调用方设置：启动路径 = GPU_MODE，status / 运行中菜单 = 记录下来的 CUR_GPU。
-REM 旧状态文件没有这一项时为空，按 off 处理 —— 即不显示这一行，与旧版输出一致。
+REM GPU_REQ / GPU_ARGS 由调用方设置：启动路径 = GPU_MODE / 本次参数，
+REM status 与运行中菜单 = 记录下来的 CUR_GPU / CUR_GPU_ARGS。
+REM 旧状态文件没有这些字段时为空，按 off 处理（不显示这行，与旧版输出一致）。
 if "%GPU_LOG_STAMP%"=="" exit /b 0
 set "GLOG=%LOG_DIR%\server-%GPU_LOG_STAMP%.log"
 if not exist "%GLOG%" exit /b 0
 set "GCLAUSE="
 for /f "usebackq delims=" %%a in (`findstr /c:"load_tensors: offloaded" "%GLOG%"`) do set "GCLAUSE=%%a"
 if defined GCLAUSE goto :SGA_SHOW
+REM 取不到实际行是正常的：llama-server 在默认详细度下根本不打印层分配
+REM（`load_tensors: offloaded` 只在 -lv 4 才输出，已实测），
+REM 所以回落到启动时记录下来的实际参数。
 if not defined GPU_REQ exit /b 0
 if /i "%GPU_REQ%"=="off" exit /b 0
-echo   GPU 层分配 未启用，本次为纯 CPU 运行（已请求 GPU，原因见 环境检查.bat 第 11 项）
+if not defined GPU_ARGS goto :SGA_NONE
+if /i "%GPU_ARGS%"=="--n-gpu-layers 0" goto :SGA_NONE
+echo   GPU 参数   %GPU_ARGS%
+exit /b 0
+:SGA_NONE
+echo   GPU 未生效，本次为纯 CPU 运行（原因见 环境检查.bat 第 11 项）
 exit /b 0
 :SGA_SHOW
 set "GCLAUSE=%GCLAUSE:*load_tensors: =%"

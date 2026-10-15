@@ -93,7 +93,10 @@ def main():
             missing.append(d)
             continue
         for name in sorted(os.listdir(full)):
-            collect(os.path.join(d, name))
+            # GPGPU 后端 DLL 按显卡架构编译，不能随包统一分发（见 llama.cpp/.gitignore
+            # 的说明），所以标为可选：分发包里没有它时只提示，不算缺件。
+            collect(os.path.join(d, name),
+                    optional=name.lower().startswith("ggml-cuda"))
     for m in MODEL_FILES:
         collect(os.path.join(MODEL_DIR, m), do_hash=with_model_hash)
 
@@ -141,7 +144,9 @@ def main():
     out.append('【3】运行产物目录（整包必需，含随包附带的 VC++ 运行时）')
     out.append('-' * 96)
     for rel, size, h in rows:
-        if rel.startswith('llama.cpp\\build-zen5\\bin') or rel.startswith('llama.cpp/build-zen5/bin'):
+        # 可选条目带 '*' 前缀，比对前先去前缀，否则它们会被整节漏掉
+        if rel.lstrip('*').startswith(('llama.cpp\\build-zen5\\bin',
+                                       'llama.cpp/build-zen5/bin')):
             out.append('%s\t%d\t%s' % (rel, size, h))
     out.append('')
 
@@ -149,7 +154,7 @@ def main():
     out.append('【4】模型文件（必需）')
     out.append('-' * 96)
     for rel, size, h in rows:
-        if rel.startswith('llama.cpp\\models') or rel.startswith('llama.cpp/models'):
+        if rel.lstrip('*').startswith(('llama.cpp\\models', 'llama.cpp/models')):
             out.append('%s\t%d\t%s' % (rel, size, h))
     out.append('')
 

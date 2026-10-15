@@ -172,10 +172,25 @@
     （18.74 GiB）但每 token 只用 8/256，所以让专家留内存、
     其余 11.9%（2.53 GiB）上显存，显存门槛很低。
       - GPU_MODE=off    默认，与旧版逐字节一致（仍传 --n-gpu-layers 0）
-      - GPU_MODE=auto   自动探测；策略为 --fit on --cpu-moe [+ -nkvo]
+      - GPU_MODE=auto   自动探测；层数按「(显卡总显存 - GPU_RESERVE_MIB) ÷ GPU_LAYER_MIB」
+                        算出，参数为 --n-gpu-layers N --cpu-moe --parallel 1
+                        （按总显存算而不是按空闲值，因为 llama.cpp 报的 free
+                          额外扣了一份保留量，用它算会少卸好几层）
       - 命令行加 gpu / nogpu 可临时切换，不改文件
       - 探测用 llama-server --list-devices（后端自报，含总/空闲显存）
       - 不可用时自动退回纯 CPU，不阻断启动
+      - 实测收益（GTX 1060 3GB / Pascal / 16K，走本项目脚本端到端）：
+          纯 CPU            生成 14.24 t/s   prefill 35.4 t/s
+          自动 GPU（40 层）  生成 19.30 t/s   prefill 44.7 t/s   （+36% / +26%）
+        卸载层数不敏感：32 层往上生成速度基本持平（19~21 t/s），压到上限即可。
+      - 两个实测踩到的坑（脚本已规避，改脚本时别改回去）：
+          1. --fit on 与 --cpu-moe 不能同用。--cpu-moe 会设置张量缓冲区覆盖，
+             --fit 发现「用户已设置覆盖」就直接放弃（日志原文：
+             failed to fit params ... tensor_buft_overrides already set by user,
+             abort），随后 n_gpu_layers 落到「全部层」，把 42/42 层塞进显存，
+             需求超过容量 → WDDM 分页 → 生成速度掉到 1/2.4。
+          2. -nkvo（KV 留内存）会让收益归零：卸载后每 token 都要把 KV 经 PCIe
+             搬回 GPU。实测加 -nkvo 后 19.3 -> 14.9 t/s，与纯 CPU 持平。
       - 检测入口有两处：启动脚本第 10 项「显卡」、环境检查第 11 项
         「GPU 支持自检」。后者多一步「后端实测」—— 只有后端自己列得出
         设备，才算 llama.cpp 真能用它；前面几步只说明条件具备。
@@ -184,6 +199,13 @@
       - 探测会在本控制台里跑一次 llama-server，而它会把控制台代码页改成
         UTF-8，脚本随后会立刻改回 936；否则后面所有 GBK 中文都会变乱码
     本包不含任何 CUDA 二进制（约 770 MB 的 cuBLAS 运行库 + 后端 DLL 由用户自备），
+    但提供了自编脚本：_维护脚本\build-cuda-backend.bat [架构]
+      - 默认架构 61（Pascal / GTX 10 系）；产物 llama.cpp\build-cuda\bin\ggml-cuda.dll
+        约 32 MB，拷进 build-zen5\bin\ 即被自动加载
+      - 自己编的最大好处：后端 API 版本与 llama-server 必然一致
+      - 前置工具：CUDA Toolkit 12.8 + MSVC 14.44；不依赖 vcvars（本环境会被拦），
+        脚本里手工拼 PATH/INCLUDE/LIB，SDK 的 bin 目录必须在 PATH 里（CMake 要用 rc.exe）
+      - 注意脚本必须是纯 ASCII + CRLF，否则 cmd 按 GBK 解析会直接崩
     环境检查.bat 第 11 项「GPU 支持自检」会逐条说明缺什么、怎么补。
     原理、显存预算与旧卡注意事项见 参数阶梯手册.md 的「GPU 混合卸载」章节。
 
