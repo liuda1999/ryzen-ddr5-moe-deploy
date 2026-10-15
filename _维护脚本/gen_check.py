@@ -242,11 +242,15 @@ echo         正常    CUDA 后端 ggml-cuda.dll 存在
 call :P11_PROBE
 goto :P11_END
 :P11_NOBACKEND
-echo         [警告]  未找到 CUDA 后端 ggml-cuda.dll
-echo                 它不是显卡驱动，而是 llama.cpp 的 CUDA 后端文件。
-echo                 获取方式：下载 llama.cpp 官方 Windows CUDA 预编译包，
-echo                 取出其中的 ggml-cuda.dll 放进
-echo                 llama.cpp\build-zen5\bin\
+echo         [警告]  未找到 CUDA 后端 ggml-cuda.dll（可选组件）
+echo                 它是可选的：不带它服务照样跑，只是 N 卡加速用不上，
+echo                 启动时会自动按纯 CPU 运行。它不是显卡驱动，而是
+echo                 llama.cpp 的 CUDA 后端文件。两种取法：
+echo                   1  本机自编：_维护脚本\build-cuda-backend.bat 61
+echo                      （61 = Pascal；按自己显卡的代际填，产物约 32 MB）
+echo                   2  下载 llama.cpp 官方 Windows CUDA 预编译包，取出
+echo                      其中的 ggml-cuda.dll
+echo                 放进 llama.cpp\build-zen5\bin\
 echo                 要求：后端 API 版本须与本项目一致，否则会被拒绝加载
 echo                 并自动退回纯 CPU。放好后重跑本检查即可确认。
 set "WARN=1"
