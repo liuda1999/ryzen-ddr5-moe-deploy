@@ -405,8 +405,8 @@ echo   1   实用档/Practical    16K 上下文/ctx / 24 线程/threads    需�
 echo   2   长文档档/Long doc   24K 上下文/ctx / 24 线程/threads    需内存/needs ~24 GB
 echo   3   超长档/Extended   32K 上下文/ctx / 24 线程/threads    需内存/needs ~25 GB   [3~4G 卡上限/cap]
 echo   4   长上下文档/Big ctx 64K 上下文/ctx / 24 线程/threads    需内存/needs ~25 GB   [需/needs 8G 显存]
-echo   5   超大档/Very big  96K 上下文/ctx / 24 线程/threads    需内存/needs ~26 GB   [需/needs 12G 显存, 未实测/untested]
-echo   6   极限档/Maximum  128K 上下文/ctx / 24 线程/threads    需内存/needs ~26 GB   [需/needs 16G 显存, 未实测/untested]
+echo   5   超大档/Very big  96K 上下文/ctx / 24 线程/threads    需内存/needs ~26 GB   [需/needs 12G 显存]
+echo   6   极限档/Maximum  128K 上下文/ctx / 24 线程/threads    需内存/needs ~26 GB   [需/needs 16G 显存]
 echo.
 echo   0   退出 / Exit
 echo ------------------------------------------------------------
