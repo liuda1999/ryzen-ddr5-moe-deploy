@@ -147,7 +147,7 @@
     7  磁盘剩余空间（低于 2 GB 拒绝启动）
     8  是否已有重复实例（防止重复启动）
     9  可用内存是否够本档位：不够直接拒绝，偏紧时二次确认
-   10  显卡（NVIDIA 独显混合卸载）：报告设备型号与显存；
+   10  显卡（NVIDIA 独显混合卸载）：默认开启，报告设备型号与显存；
        GPU 不可用时只提示、不阻拦（服务仍以纯 CPU 正常运行）
 
   深度思考（推理链）开关 —— 除档位外对响应速度影响最大的开关：
@@ -167,18 +167,25 @@
     实现方式：WScript.Shell 的 Run 以隐藏窗口风格（0）、不等待（false）拉起
     一个 cmd 包装进程完成启动与日志重定向。详见 _维护脚本\说明.md。
 
-  GPU 混合卸载接口（只针对 NVIDIA 独立显卡，默认关闭）：
+  GPU 混合卸载（只针对 NVIDIA 独立显卡，默认开启，CPU 兜底）：
     把「每 token 必读」的权重放进显存提速。实测本模型专家权重占 88.1%
     （18.74 GiB）但每 token 只用 8/256，所以让专家留内存、
     其余 11.9%（2.53 GiB）上显存，显存门槛很低。
-      - GPU_MODE=off    默认，与旧版逐字节一致（仍传 --n-gpu-layers 0）
-      - GPU_MODE=auto   自动探测；层数按「(显卡总显存 - GPU_RESERVE_MIB) ÷ GPU_LAYER_MIB」
-                        算出，参数为 --n-gpu-layers N --cpu-moe --parallel 1
+      - GPU_MODE=auto   默认。自动探测；层数按「(显卡总显存 - GPU_RESERVE_MIB)
+                        ÷ GPU_LAYER_MIB」算出，参数为
+                        --n-gpu-layers N --cpu-moe --parallel 1
                         （按总显存算而不是按空闲值，因为 llama.cpp 报的 free
                           额外扣了一份保留量，用它算会少卸好几层）
-      - 命令行加 gpu / nogpu 可临时切换，不改文件
-      - 探测用 llama-server --list-devices（后端自报，含总/空闲显存）
-      - 不可用时自动退回纯 CPU，不阻断启动
+      - GPU_MODE=off    强制纯 CPU（与旧版逐字节一致，仍传 --n-gpu-layers 0）
+      - 命令行加 gpu / nogpu 可临时切换，不改文件，重启后回到文件设置
+      - 探测用 llama-server --list-devices（后端自报，含总/空闲显存）；
+        这一步会真正加载 CUDA 后端，所以它成功即代表整条链路可用
+      - 不可用时自动退回纯 CPU，不阻断启动 —— 所以默认开着是安全的
+      - 只支持 NVIDIA 独显：核显与 AMD / Intel 卡一律纯 CPU
+      - 显存策略刻意「压满、不留余量」：标定用的 3 GB 卡是最坏情况；
+        主流消费级 N 卡普遍 4 GB 起，4 GB 上 (4096-448)/64 = 57 层会被
+        GPU_NLAYER=41 封顶，本来就吃不满那 2.53 GiB，余量天然更大。
+        只有 3 GB 卡同时跑重度图形程序时可能越界分页，那就调大 GPU_RESERVE_MIB。
       - 实测收益（GTX 1060 3GB / Pascal / 16K，走本项目脚本端到端）：
           纯 CPU            生成 14.24 t/s   prefill 35.4 t/s
           自动 GPU（40 层）  生成 19.30 t/s   prefill 44.7 t/s   （+36% / +26%）

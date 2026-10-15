@@ -30,15 +30,17 @@ REM     但必须携带密钥（首次启动自动生成到根目录 api-key.txt）。
 REM     只想本机可用时，把下面的 HOST 改回 127.0.0.1。
 REM
 REM   GPU 混合卸载（只针对 NVIDIA 独立显卡；核显与非 N 卡一律按纯 CPU）：
-REM     默认关闭。开启后把「每 token 必读」的那部分权重放进显存，
+REM     默认开启（GPU_MODE=auto）。把「每 token 必读」的那部分权重放进显存，
 REM     体积最大的 MoE 专家权重仍留在内存（它们每 token 只用到 8/256）。
 REM     实测：非专家权重仅 2.53 GiB，占总权重 11.9%。
-REM     开启方式（三者其一）：
-REM       a) 把下面的 GPU_MODE 改成 auto     —— 自动探测并按空闲显存选策略
-REM       b) 命令行加一个 gpu 参数          —— 启动大模型.bat start 2 gpu
-REM       c) 把 GPU_MODE 改成 manual，再自己填下面几个值
-REM     GPU 不可用时（没 N 卡 / 没后端 / 没 CUDA 运行库）会自动退回纯 CPU，
-REM     不会阻止启动。缺什么请跑一次 环境检查.bat 的「GPU 支持自检」。
+REM     GPU 不可用时（没 N 卡 / 没后端 / 没 CUDA 运行库 / 显存太小）会自动
+REM     退回纯 CPU，不会阻止启动 —— 所以默认开着是安全的，CPU 永远兜底。
+REM     关闭方式（三者其一）：
+REM       a) 把下面的 GPU_MODE 改成 off
+REM       b) 命令行加一个 nogpu 参数        —— 启动大模型.bat start 2 nogpu
+REM       c) 想自己控层数：把 GPU_MODE 改成 manual，再填下面几个值
+REM     想临时试一次：启动大模型.bat start 2 gpu
+REM     缺后端 / 缺 CUDA 运行库请跑 环境检查.bat 的「GPU 支持自检」。
 REM     原理与显存预算详见：参数阶梯手册.md 的「GPU 混合卸载」章节。
 REM
 REM   可在任意位置追加 quiet 参数进入静默模式（计划任务 / 开机自启用）：
@@ -65,13 +67,13 @@ set "READY_TIMEOUT=300"
 
 REM ============================================================
 REM  GPU 混合卸载（只针对 NVIDIA 独立显卡）
-REM  默认 off，无 N 卡的设备行为与之前完全一致。
+REM  默认 auto：有 N 卡就压榨显存提速，没有就自动退回纯 CPU。
 REM
+REM   auto   = 默认值。自动探测，按显存算出卸几层；不可用则退回纯 CPU
 REM   off    = 完全不启用，传 --n-gpu-layers 0（与旧版逐字节一致）
-REM   auto   = 可用就用：自动探测，按空闲显存选策略；不可用则退回纯 CPU
 REM   manual = 完全按下面几个值拼参数
 REM ============================================================
-set "GPU_MODE=off"
+set "GPU_MODE=auto"
 REM manual 模式专用（auto 模式忽略它们）：
 set "GPU_DEVICE="         REM 指定设备，如 CUDA0；留空=自动
 set "GPU_LAYERS="         REM -ngl 值：数字 / auto / all
@@ -81,14 +83,20 @@ set "KV_OFFLOAD="         REM on / off；off = KV 留内存（省显存，适合小显存卡）
 REM auto 模式的参数（MiB）—— 取值来自 2026-10-15 在 GTX 1060 3GB 上的实测：
 set "GPU_MIN_FREE_MIB=1536"   REM 空闲显存低于此值就不启用（再低收益太小）
 set "GPU_LAYER_MIB=64"        REM 每层「非专家权重」约 64 MiB（本模型实测 2.53 GiB / 41 层）
-set "GPU_RESERVE_MIB=448"     REM 桌面占用 + KV/计算缓冲 + CUDA 上下文的总余量
+set "GPU_RESERVE_MIB=448"     REM 桌面占用 + KV/计算缓冲 + CUDA 上下文，属硬开销，不含安全垫
 set "GPU_NLAYER=41"           REM 模型层数，用来给算出的层数封顶
 REM 层数是按「显卡总显存」算的，不是按 llama.cpp 报的空闲显存：
 REM   llama.cpp 的 free 会额外扣掉一份保留量（本卡报 2460，而实际可用约 2880），
 REM   用 total 算才能压榨到位。实测 32~41 层速度基本持平（生成 18~21 t/s），
 REM   所以这里取「压满但不超过模型层数」。
-REM   代价是没有余量：如果同时开着重度图形程序把桌面占用推高，仍可能越界分页
-REM   （分页后生成速度会掉到约 1/2.4）。想要留量就把 GPU_RESERVE_MIB 调大。
+REM
+REM 为什么故意不留余量（448 只是桌面+KV+上下文的硬开销，不是安全垫）：
+REM   本机这张 GTX 1060 3GB 是「能找到的最老、显存最低」的卡，属于最坏情况；
+REM   主流消费级 N 卡普遍 4GB 起，而 4GB 上 (4096-448)/64 = 57 层同样会被
+REM   GPU_NLAYER=41 封顶 —— 即 4GB 以上的卡本来就吃不满非专家权重那一份，
+REM   余量天然更大、更不容易越界。所以「压满」对绝大多数设备都是安全的。
+REM   代价：3GB 卡上若同时开着重度图形程序把桌面占用推高，仍可能越界分页
+REM   （分页后生成速度掉到约 1/2.4）。想要保险就把 GPU_RESERVE_MIB 调大。
 REM 换模型时 GPU_LAYER_MIB 与 GPU_NLAYER 都要跟着改：
 REM   GPU_NLAYER   = 模型层数
 REM   GPU_LAYER_MIB = 模型里「非专家权重」总大小 ÷ 层数
@@ -124,8 +132,9 @@ if /i "%~2"=="nothink" set "THINK_FIXED=1"
 if /i "%~3"=="nothink" set "THINK_FIXED=1"
 if /i "%~4"=="nothink" set "THINK_FIXED=1"
 
-REM GPU 开关：命令行加 gpu 等价于 GPU_MODE=auto，加 nogpu 等价于 off。
-REM 用命令行指定时，不再因为文件里是 off 而忽略（便于临时试 GPU，不改文件）。
+REM GPU 开关：默认就是 auto（有 N 卡就启用），这里只处理命令行的临时覆盖：
+REM   nogpu -> 本次强制纯 CPU      gpu -> 本次强制启用
+REM 命令行优先级最高，不改文件，重启后回到文件里的设置。
 if /i "%~1"=="gpu"   goto :GPUCLI_ON
 if /i "%~2"=="gpu"   goto :GPUCLI_ON
 if /i "%~3"=="gpu"   goto :GPUCLI_ON
@@ -968,7 +977,7 @@ REM ============================================================
 set "GPU_ARGS=--n-gpu-layers 0"
 set "GPU_STRATEGY=纯 CPU"
 if /i "%GPU_MODE%"=="off" (
-  set "GPU_STRATEGY=纯 CPU（GPU_MODE=off，默认）"
+  set "GPU_STRATEGY=纯 CPU（GPU_MODE=off，已手动关闭）"
   exit /b 0
 )
 if "%GPU_AVAILABLE%"=="1" goto :BGA_HAVE
@@ -1076,7 +1085,7 @@ set "GCLAUSE="
 for /f "usebackq delims=" %%a in (`findstr /c:"load_tensors: offloaded" "%GLOG%"`) do set "GCLAUSE=%%a"
 if defined GCLAUSE goto :SGA_SHOW
 REM 取不到实际行是正常的：llama-server 在默认详细度下根本不打印层分配
-REM（`load_tensors: offloaded` 只在 -lv 4 才输出，已实测），
+REM （load_tensors: offloaded 只在 -lv 4 才输出，已实测），
 REM 所以回落到启动时记录下来的实际参数。
 if not defined GPU_REQ exit /b 0
 if /i "%GPU_REQ%"=="off" exit /b 0
@@ -1212,13 +1221,15 @@ call :CHK_NEXT
 echo [10/10] 显卡（NVIDIA 独显混合卸载）
 REM 这一项只报「能不能用」，永远不设 [失败] —— GPU 不可用时服务照样能
 REM 以纯 CPU 跑起来，不该因为显卡的事把启动拦掉。
+REM 默认 GPU_MODE=auto，正常都走 :TGPU_REQ 去探测；能落到下面两条的，
+REM 只可能是手动关了（命令行 nogpu，或把顶部 GPU_MODE 改成 off）。
 if /i not "%GPU_MODE%"=="off" goto :TGPU_REQ
 if not exist "%BIN_DIR%\ggml-cuda.dll" goto :TGPU_PLAIN
-echo         提示    检测到 CUDA 后端，但 GPU_MODE=off，本次仍按纯 CPU 运行
+echo         提示    已关闭 GPU（GPU_MODE=off），本次按纯 CPU 运行
 echo                 想启用：启动大模型.bat start 2 gpu   或把顶部 GPU_MODE 改成 auto
 goto :TGPU_END
 :TGPU_PLAIN
-echo         提示    未启用（GPU_MODE=off），本次按纯 CPU 运行
+echo         提示    已关闭 GPU（GPU_MODE=off），本次按纯 CPU 运行
 echo                 有 N 卡想加速：跑 环境检查.bat 看第 11 项「GPU 支持自检」
 goto :TGPU_END
 :TGPU_REQ
@@ -1227,7 +1238,7 @@ if "%GPU_AVAILABLE%"=="1" (
   echo         正常    %GPU_NAME%
   echo                 显存 %GPU_TOTAL_MIB% MiB 总 / %GPU_FREE_MIB% MiB 空闲，本次将启用 GPU 混合卸载
 ) else (
-  echo         [警告]  已请求 GPU 但不可用，本次退回纯 CPU 运行
+  echo         提示    未启用 GPU，本次按纯 CPU 运行（默认兜底，不是错误）
   echo                 %GPU_PROBE_NOTE%
   echo                 排查：跑 环境检查.bat 看第 11 项「GPU 支持自检」
 )

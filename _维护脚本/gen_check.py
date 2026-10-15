@@ -196,6 +196,8 @@ REM  [11] GPU 支持自检（只针对 NVIDIA 独立显卡）
 REM
 REM  这一项全部按「警告」处理，绝不设 [失败] —— 因为 GPU 不可用时
 REM  服务仍会以纯 CPU 正常运行，不该因为显卡问题阻止启动。
+REM  GPU_MODE 默认就是 auto，所以「GPU 用不上」只是回到纯 CPU 兜底，
+REM  属于正常路径，本项只负责说清缺什么、怎么补。
 REM  核显、AMD / Intel 显卡一律按纯 CPU 处理，不在检查范围内。
 REM ============================================================
 echo [11/11] GPU 支持自检（只针对 NVIDIA 独立显卡）
@@ -424,12 +426,13 @@ if not defined P11DEV goto :P11_PROBE_FAIL
 for /f "tokens=1,2,3,4 delims=|" %%a in ("%P11DEV%") do (
   echo         正常    后端实测可用：%%b
   echo                 设备 %%a，显存 %%c MiB 总 / %%d MiB 空闲
-  echo                 启用方式：启动大模型.bat start 2 gpu
+  echo                 默认已启用（GPU_MODE=auto）：启动时自动按显存算卸载层数
 )
 exit /b 0
 :P11_PROBE_FAIL
 echo         [警告]  后端实测未列出任何设备
-echo                 说明 llama.cpp 目前用不上这块卡。常见成因：
+echo                 说明 llama.cpp 目前用不上这块卡；服务仍会以纯 CPU 正常
+echo                 运行（GPU_MODE=auto 会自动兜底，不拦启动）。常见成因：
 echo                   显卡驱动过老
 echo                   CUDA 运行库与后端版本不匹配
 echo                   后端 API 版本与本项目不一致（会被拒绝加载）
