@@ -114,14 +114,13 @@
     E:\llm-cpp\llama.cpp\build-zen5\bin\llama-cli.exe     --help
     E:\llm-cpp\llama.cpp\build-zen5\bin\llama-server.exe  --help
 
-  线程 / 上下文策略（重要，已由 8 组实测矩阵确定，见第 6 节）：
-    本机 16 物理核 / 32 逻辑核。不使用全部 32 线程。
-    速度最优：THREADS=24（12 物理核） + CTX=12288（12K） -> 13.28 t/s
-    当前默认：THREADS=24             + CTX=16384（16K） -> 12.73 t/s
-              （慢 4%，但上下文容量多 33%，综合最实用）
-        - 28 线程 prefill 快约 2%，但生成反而慢 0.1~0.2 t/s（内存带宽争用）
-        - 上下文 12K->16K 降 4%，16K->24K 降 7%，24K->32K 降 16%
-    脚本已内置 THREADS=24 / CTX=16384，改这两个变量即可换档。
+  线程 / 上下文策略（重要，已由实测确定，见第 6 节）：
+    本机 16 物理核 / 32 逻辑核。固定用 24 线程（实测 8~40 线程生成速度基本持平，
+    瓶颈在显存/内存带宽与逐层串行，不在 CPU 算力）。
+    生成速度与上下文长度几乎无关：短对话在任何档位都约 24 t/s，
+    只有把上下文填满才缓降到 20 t/s（12K→32K 分别约 22 / 22 / 21 / 20 t/s）。
+    有 N 卡时默认启用显存混合卸载；无 N 卡按纯 CPU（约 15.6 t/s）。
+    脚本已内置 THREADS=24，改 CTX 即可换档（现场在 :APPLY_TIER 段）。
     全部档位数据与取舍：E:\llm-cpp\参数阶梯手册.md
 
   快捷开关（推荐，工作区根目录，全中文命名）：
@@ -141,7 +140,7 @@
     2  依赖 DLL：llama / llama-common / ggml / ggml-base
     3  CPU 后端变体：确认 icelake(AVX-512+VNNI+VBMI) 生效；
        若发现 cascadelake 抢占会自动改名为 .disabled
-    4  模型文件存在且大小合理（完整约 21.3 GB）
+    4  模型文件存在且大小合理（完整约 19.8 GB）
     5  多模态投影 mmproj（缺失只警告，退化为纯文本）
     6  端口 35035 是否被别的进程占用（并打印占用者进程名）
     7  磁盘剩余空间（低于 2 GB 拒绝启动）
@@ -168,9 +167,10 @@
     一个 cmd 包装进程完成启动与日志重定向。详见 _维护脚本\说明.md。
 
   GPU 混合卸载（只针对 NVIDIA 独立显卡，默认开启，CPU 兜底）：
-    把「每 token 必读」的权重放进显存提速。实测本模型专家权重占 88.1%
-    （18.74 GiB）但每 token 只用 8/256，所以让专家留内存、
-    其余 11.9%（2.53 GiB）上显存，显存门槛很低。
+    把「每 token 必读」的权重放进显存提速。实测本模型专家权重约占 88%
+    （约 19 GiB）但每 token 只用 8/256，所以让专家留内存、
+    其余非专家权重（约 1.3 GiB）上显存，显存门槛很低。
+    显存实测（32K 档）：模型 1338 + KV 640 + RS 61 + 计算 476 ≈ 2515 MiB / 3071 MiB。
       - GPU_MODE=auto   默认。自动探测；层数按「(显卡总显存 - GPU_RESERVE_MIB)
                         ÷ GPU_LAYER_MIB」算出，参数为
                         --n-gpu-layers N --cpu-moe --parallel 1
@@ -184,12 +184,14 @@
       - 只支持 NVIDIA 独显：核显与 AMD / Intel 卡一律纯 CPU
       - 显存策略刻意「压满、不留余量」：标定用的 3 GB 卡是最坏情况；
         主流消费级 N 卡普遍 4 GB 起，4 GB 上 (4096-448)/64 = 57 层会被
-        GPU_NLAYER=41 封顶，本来就吃不满那 2.53 GiB，余量天然更大。
+        GPU_NLAYER 封顶，本来就吃不满那约 1.3 GiB，余量天然更大。
         只有 3 GB 卡同时跑重度图形程序时可能越界分页，那就调大 GPU_RESERVE_MIB。
       - 实测收益（GTX 1060 3GB / Pascal / 16K，走本项目脚本端到端）：
-          纯 CPU            生成 14.24 t/s   prefill 35.4 t/s
-          自动 GPU（40 层）  生成 19.30 t/s   prefill 44.7 t/s   （+36% / +26%）
-        卸载层数不敏感：32 层往上生成速度基本持平（19~21 t/s），压到上限即可。
+          纯 CPU            生成 15.59 t/s   填满 11.55 t/s
+          自动 GPU（40 层）  生成 23.73 t/s   填满 21.96 t/s   （+52% / +90%）
+        卸载层数不敏感：32 层往上生成速度基本持平，压到上限即可。
+        模型对比（短对话）：无 MTP 版 23.6 t/s、带 MTP 版 21.0 t/s（慢约 14%）、
+                  IQ3_S 24.8 t/s —— 故默认改用无 MTP 的 Q4_K_M。
       - 两个实测踩到的坑（脚本已规避，改脚本时别改回去）：
           1. --fit on 与 --cpu-moe 不能同用。--cpu-moe 会设置张量缓冲区覆盖，
              --fit 发现「用户已设置覆盖」就直接放弃（日志原文：
@@ -197,7 +199,7 @@
              abort），随后 n_gpu_layers 落到「全部层」，把 42/42 层塞进显存，
              需求超过容量 → WDDM 分页 → 生成速度掉到 1/2.4。
           2. -nkvo（KV 留内存）会让收益归零：卸载后每 token 都要把 KV 经 PCIe
-             搬回 GPU。实测加 -nkvo 后 19.3 -> 14.9 t/s，与纯 CPU 持平。
+             搬回 GPU。实测加 -nkvo 后收益全部消失，与纯 CPU 持平。
       - 检测入口有两处：启动脚本第 10 项「显卡」、环境检查第 11 项
         「GPU 支持自检」。后者多一步「后端实测」—— 只有后端自己列得出
         设备，才算 llama.cpp 真能用它；前面几步只说明条件具备。
@@ -266,20 +268,23 @@
 =====================================================================
 5) 模型部署验证（Qwen3.6-35B-A3B）
 =====================================================================
-  模型来源：\\Nas\d盘\03-AI资源\GGUF-大模型备份\Qwen3.6-35B-A3B-MTP-GGUF
-  已拉取到本地 E:\llm-cpp\llama.cpp\models\：
-    - Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf   21.28 GB（主模型）
-    - mmproj-BF16.gguf                   0.84 GB（视觉投影，多模态）
+  当前模型（无 MTP 版）：
+    - Qwen3.6-35B-A3B-uncensored-heretic-Q4_K_M.gguf   21.2 GB（主模型）
+    - mmproj-BF16.gguf                                  0.84 GB（视觉投影，多模态）
+  来源：llmfan46/Qwen3.6-35B-A3B-uncensored-heretic-GGUF（见 下载模型.md）
+    （曾用带 MTP 的 Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf，实测慢约 14%，已换掉）
 
-  模型元数据（gguf_info.py 解析）：
+  模型元数据（_维护脚本/gguf_inspect.py 解析）：
     general.architecture = qwen35moe      -> llama.cpp 支持（LLM_ARCH_QWEN35MOE）
-    block_count = 41, expert_count = 256, expert_used_count = 8（MoE 稀疏激活）
+    block_count = 40, expert_count = 256, expert_used_count = 8（MoE 稀疏激活）
+    MTP 头：无（blk.40.nextn.* 不存在）   -> 比带 MTP 版快约 14%
+    注意力：混合（每 4 层 1 层全注意力 + 3 层线性）-> KV 随上下文增长很慢
     context_length = 262144（原生）      -> 必须显式限制，否则 KV cache 过大
 
   [纯文本推理 - llama-cli]
     命令：-m <模型> -p "你好，请用一句话介绍你自己。" -n 96 -t 24 -tb 24 -ngl 0 -c 4096 -st
     结果：exit 0，正常生成并自动退出
-          Prompt: 36.9 t/s | Generation: 13.3 t/s
+          Prompt: 36.9 t/s | Generation: 约 15.6 t/s（纯 CPU；GPU 混合下约 23.7 t/s）
 
   [HTTP 服务 - llama-server，含多模态]
     命令：-m <模型> --mmproj mmproj-BF16.gguf -t 24 -tb 24 -ngl 0 -c 4096
@@ -287,28 +292,27 @@
           listening on http://127.0.0.1:35035
           /health -> {"status":"ok"}
           /v1/models -> capabilities: ["completion", "multimodal"]
-          /v1/chat/completions -> prompt 53.9 t/s, generation 13.55 t/s
+          /v1/chat/completions -> prompt 53.9 t/s, generation 约 15.6 t/s（纯 CPU）
                                   （模型自述为 Qwen / 通义千问）
 
-  [线程设置 - 已按 12 物理核心 / 24 逻辑线程 修正]
-    最初误设为 12 条线程（仅 6 个物理核的算力），已更正：
+  [线程设置 - 24 线程]
+    实测 8~40 线程生成速度基本持平：MoE 生成阶段瓶颈在显存/内存带宽与逐层
+    串行，不在 CPU 算力，所以固定 24 线程即可，不必纠结线程数。
       --threads 24 --threads-batch 24
-    实测对比（同一提示，非严格控制变量）：
-      12 线程 -> Generation 约 11.5 t/s
-      24 线程 -> Generation 约 13.3 ~ 13.6 t/s
-    未用满 32 逻辑线程，避免同步开销与内存带宽争用。
 
   [使用注意]
     - 该模型默认启用思考链（reasoning），会先输出 reasoning_content 再给答案；
       若 token 预算较小可能只看到思考过程（finish_reason: length）。
       需要直接回答时：增大 max_tokens，或用 --reasoning off 关闭思考。
-    - 上下文已限制为 12288（12K，实测生成最快档）；改 --ctx-size 可换档。
-    - 纯 CPU 推理，--n-gpu-layers 0。
+    - 上下文按档位限制（12K/16K/24K/32K，默认 16K）。
 
 
 =====================================================================
-6) 上下文 × 线程 矩阵基准（8 组，2026-10-15）
+6) 上下文 × 线程 矩阵基准（8 组，2026-10-15）【历史存档：纯 CPU 早期基线】
 =====================================================================
+  ！注意：本节是早期【纯 CPU、带 MTP 模型】的基线，已被后续改造取代。
+    当前数据（无 MTP 模型 + 默认 GPU 混合卸载）见 参数阶梯手册.md：
+    短对话约 24 t/s、填满 32K 约 20 t/s。以下仅供参考线程/上下文趋势。
   目的：在"生成体感可接受"的区间内，找出每秒生成 token 最多的组合。
   方法：每次以指定 ctx / 线程重启 llama-server，把上下文填满到
         (ctx - 384 - 128)，关闭思考链，要求生成约 300 字正文，

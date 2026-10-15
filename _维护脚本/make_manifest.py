@@ -35,7 +35,7 @@ DIR_REQUIRED = [
 ]
 MODEL_DIR = os.path.join("llama.cpp", "models")
 MODEL_FILES = [
-    "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf",
+    "Qwen3.6-35B-A3B-uncensored-heretic-Q4_K_M.gguf",
     "mmproj-BF16.gguf",
 ]
 EXCLUDED = [
@@ -116,7 +116,7 @@ def main():
     out.append('          本文件自身不参与校验。')
     out.append('')
     out.append('Git 仓库说明：')
-    out.append('  本清单描述的是【完整分发包】，包含 21.3 GB 的模型文件。')
+    out.append('  本清单描述的是【完整分发包】，包含 21.2 GB 的模型文件。')
     out.append('  GitHub 仓库出于体积原因不含模型与构建中间产物，')
     out.append('  因此在仓库副本里执行校验会提示模型缺失 —— 这是预期结果。')
     out.append('  仓库使用者请按 README.md 中的链接自行下载模型。')

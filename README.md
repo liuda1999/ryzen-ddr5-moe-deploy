@@ -26,10 +26,10 @@
 > 下列性能数据是**当前验证过的实例**，不是项目的定义。换模型只需要两步：
 > 换掉 `.gguf` 文件，改脚本里一行 `MODEL` 变量。
 >
-> | 当前实例 | Qwen3.6-35B-A3B（MoE 架构，256 专家激活 8 个），Q4_K_XL 量化，21.28 GB |
+> | 当前实例 | Qwen3.6-35B-A3B（MoE 架构，256 专家激活 8 个，**无 MTP**），Q4_K_M 量化，21.2 GB |
 > |---|---|
-> | 量化来源 | [unsloth/Qwen3.6-35B-A3B-MTP-GGUF](https://hf-mirror.com/unsloth/Qwen3.6-35B-A3B-MTP-GGUF) |
-> | 为什么选它 | 35B 总参数 / 仅激活 3B 的 MoE 结构，在纯 CPU 上能跑出可用速度；同规格的其他 MoE 模型同样适用 |
+> | 量化来源 | [llmfan46/Qwen3.6-35B-A3B-uncensored-heretic-GGUF](https://hf-mirror.com/llmfan46/Qwen3.6-35B-A3B-uncensored-heretic-GGUF)（`hf-mirror.com` 为国内镜像） |
+> | 为什么选它 | 35B 总参数 / 仅激活 3B 的 MoE 结构，在纯 CPU 上也能跑出可用速度；**无 MTP 头**，比带 MTP 的同规格模型快约 **14%**；同规格的其他 MoE 模型同样适用 |
 >
 > 选型逻辑见下一节：**MoE 结构 + 内存带宽**才是这套东西成立的前提。
 
@@ -45,7 +45,7 @@
 | **无窗口运行** | 服务完全静默跑在后台，任务栏不出现多余窗口 |
 | **自动密钥** | 首次启动自动生成访问密钥，启动时打印并复制到剪贴板 |
 | **深度思考开关** | 可一键关掉思维链。同样的题，输出 token 从 241 降到 **4** |
-| **GPU 混合卸载**（默认开启） | 有 **NVIDIA 独立显卡**就自动把「每 token 必读」的权重放进显存提速 —— 实测只需 **2.53 GiB 显存**，占大头的 MoE 专家权重仍留内存。**GTX 1060 3GB 实测：生成 14.24 → 19.30 t/s（+36%）**。没有 N 卡（或缺后端 / 缺运行库 / 显存太小）自动退回纯 CPU，核显与非 N 卡一律纯 CPU |
+| **GPU 混合卸载**（默认开启） | 有 **NVIDIA 独立显卡**就自动把「每 token 必读」的权重放进显存提速 —— 实测只需约 **1.3 GiB 显存**，占大头的 MoE 专家权重仍留内存。**GTX 1060 3GB 实测：生成 15.6 → 23.7 t/s（+52%）**。没有 N 卡（或缺后端 / 缺运行库 / 显存太小）自动退回纯 CPU，核显与非 N 卡一律纯 CPU |
 | **内存预检** | 按实际可用内存判断本档位能不能跑，不够就当场拦住并给出替代档位 |
 | **模型可替换** | 换 `.gguf` 改一行即可，套件本身不与任何模型绑定 |
 | **中文路径可用** | 中文目录、中文用户名下均已实测通过 |
@@ -146,9 +146,9 @@ Get-CimInstance Win32_PhysicalMemory |
 |---|---|
 | 系统 | Windows 10 / 11 **x64** |
 | CPU | **AMD Ryzen 推荐**（本包在 Zen 5 上标定）。支持 AVX-512 更快，不支持会自动回退 AVX2 变体 |
-| 内存 | **≥ 32 GB，强烈建议 2 条组双通道**（推荐 64 GB；默认档位需约 30 GB 可用内存） |
+| 内存 | **≥ 32 GB，强烈建议 2 条组双通道**（推荐 64 GB；默认档位需约 24 GB 可用内存） |
 | 内存频率 | **建议开启 EXPO 跑到额定频率**（详见第二章） |
-| 磁盘 | Q4_K_XL 约 **25 GB**；改用 IQ3_S 约 **17 GB** |
+| 磁盘 | Q4_K_M 约 **23 GB**；改用 IQ3_S 约 **15 GB** |
 | 显卡 | **不需要**，核显独显都不用 |
 | 运行时 | **什么都不用装**。VC++ 运行库已随包附带，PowerShell / curl 系统自带 |
 
@@ -161,6 +161,7 @@ Get-CimInstance Win32_PhysicalMemory |
 方式 A —— 直接下载免安装包（推荐，已含编译好的程序）：
 
 到 [Releases](../../releases) 页面下载 `...-no-model.zip`，解压到任意目录（**建议英文路径**）。
+包内含全部程序与文档，但**不含模型**（21.2 GB），也**不含 CUDA 后端**（可选组件，见第十一节第 4 条）。
 
 方式 B —— 克隆仓库：
 
@@ -180,7 +181,7 @@ git clone https://github.com/liuda1999/ryzen-ddr5-moe-deploy.git
 1. **选配置档位** —— 直接回车 = 档位 2（16K 上下文 / 24 线程，实用档）
 2. **是否开启深度思考** —— 直接回车 = 关闭（更快、更省 token）
 
-约 15~30 秒后显示「启动成功」并打印本次 API 信息，浏览器打开提示的地址即可对话。
+约 30~90 秒后显示「启动成功」并打印本次 API 信息，浏览器打开提示的地址即可对话。
 
 > **同一个脚本再运行一次就是关闭服务**（自动释放内存）。
 > 想确认服务在不在：`启动大模型.bat status`。
@@ -196,8 +197,8 @@ git clone https://github.com/liuda1999/ryzen-ddr5-moe-deploy.git
 :: 想长期关掉：把 启动大模型.bat 顶部的 GPU_MODE 改成 off
 ```
 
-启用后把「每 token 必读」的权重放进显存（**实测只需 2.53 GiB**），
-占总量 88.1% 的 MoE 专家权重仍留在内存。
+启用后把「每 token 必读」的权重放进显存（**实测只需约 1.3 GiB**），
+占总量约 88% 的 MoE 专家权重仍留在内存。
 
 **GPU 加速需要两样东西，装了显卡驱动并不等于齐了**：
 
@@ -220,23 +221,27 @@ git clone https://github.com/liuda1999/ryzen-ddr5-moe-deploy.git
 
 ## 五、模型下载（当前实例）
 
-模型来源：[unsloth/Qwen3.6-35B-A3B-MTP-GGUF](https://hf-mirror.com/unsloth/Qwen3.6-35B-A3B-MTP-GGUF)（`hf-mirror.com` 为国内镜像）
+模型来源：[llmfan46/Qwen3.6-35B-A3B-uncensored-heretic-GGUF](https://hf-mirror.com/llmfan46/Qwen3.6-35B-A3B-uncensored-heretic-GGUF)（`hf-mirror.com` 为国内镜像）
 
-### 主模型（二选一）
+### 主模型
 
 | 文件 | 大小 | 建议 |
 |---|---|---|
-| **[Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf](https://hf-mirror.com/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf?download=true)** | **21.28 GB** | **推荐**。量化损失小、质量最好 |
-| [Qwen3.6-35B-A3B-UD-IQ3_S.gguf](https://hf-mirror.com/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ3_S.gguf?download=true) | 14.29 GB | 内存只有 32 GB 时选它 |
+| **[Qwen3.6-35B-A3B-uncensored-heretic-Q4_K_M.gguf](https://hf-mirror.com/llmfan46/Qwen3.6-35B-A3B-uncensored-heretic-GGUF/resolve/main/Qwen3.6-35B-A3B-uncensored-heretic-Q4_K_M.gguf?download=true)** | **21.2 GB** | **推荐（默认）**。无 MTP 头，比带 MTP 版快约 **14%** |
+| [Qwen3.6-35B-A3B-UD-IQ3_S.gguf](https://hf-mirror.com/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ3_S.gguf?download=true) | 13.7 GB | 更省内存、快约 5%，量化质量略降 |
+
+> 想保留 MTP 以便将来到强卡上开投机：可用
+> [TopherAU/…-Native-MTP-Preserved-GGUF](https://hf-mirror.com/TopherAU/Qwen3.6-35B-A3B-uncensored-heretic-Native-MTP-Preserved-GGUF)。
+> 但在 3 GB 这类小显存卡上，带 MTP 反而**慢约 14%**，故默认选无 MTP 版。
 
 ### 视觉投影 mmproj（可选，看图片才需要）
 
 | 文件 | 大小 | 建议 |
 |---|---|---|
-| **[mmproj-BF16.gguf](https://hf-mirror.com/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/resolve/main/mmproj-BF16.gguf?download=true)** | **0.84 GB** | **推荐**，启动脚本默认找的就是它 |
+| **[mmproj-BF16.gguf](https://hf-mirror.com/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/resolve/main/mmproj-BF16.gguf?download=true)** | **0.84 GB** | **推荐**，启动脚本默认找的就是它。与 heretic 主模型同一视觉塔，通用 |
 | [mmproj-F32.gguf](https://hf-mirror.com/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/resolve/main/mmproj-F32.gguf?download=true) | 1.66 GB | 精度更高、体积翻倍 |
 
-全部放到 `llama.cpp\models\` 下。**21 GB 的文件建议用带断点续传的方式下载**，
+全部放到 `llama.cpp\models\` 下。**20 GB 的文件建议用带断点续传的方式下载**，
 命令与校验值见 [`下载模型.md`](llama.cpp/models/下载模型.md)。
 
 ### 想换成别的模型？
@@ -255,19 +260,21 @@ set "MODEL=%ROOT%llama.cpp\models\你的模型.gguf"
 
 ## 六、配置档位（实测数据）
 
-以下均为本机（Ryzen 9 9950X / 64 GB DDR5-6000 EXPO）实测，**上下文越大生成越慢、内存越多**：
+以下均为本机（Ryzen 9 9950X / 64 GB DDR5-6000 EXPO / GTX 1060 3GB）实测。**生成速度与上下文长度几乎无关** —— 短对话在任何档位都约 24 t/s，只有把上下文**填满**才缓降到 20 t/s：
 
 | 档位 | 上下文 | 线程 | 生成速度 | 约需内存 | 适用场景 |
 |---|---|---|---|---|---|
-| 1 极速档 | 12288（12K） | 24 | **13.28 t/s** | 28 GB | 短问答、追求最快 |
-| **2 实用档（默认）** | **16384（16K）** | **24** | **12.73 t/s** | **30 GB** | 日常对话 + 中等长度文档 |
-| 3 长文档档 | 24576（24K） | 24 | 11.82 t/s | 34 GB | 长文档分析 |
-| 4 超长档 | 32768（32K） | 24 | 9.95 t/s | 38 GB | 超长上下文 |
-| 5 极限档 | 65536（64K） | 28 | 4.28 t/s | 55 GB | 能跑，但很慢 |
+| 1 极速档 | 12288（12K） | 24 | **23.8 t/s** | 24 GB | 短问答 |
+| **2 实用档（默认）** | **16384（16K）** | **24** | **23.7 t/s** | **24 GB** | 日常对话 + 中等长度文档 |
+| 3 长文档档 | 24576（24K） | 24 | 23.9 t/s | 25 GB | 长文档分析 |
+| 4 超长档 | 32768（32K） | 24 | 23.6 t/s | 25 GB | 超长上下文（上限） |
+
+> 上表为**短对话**速度。把上下文填满后分别约 22.4 / 22.0 / 21.2 / 20.1 t/s。
+> 无 N 卡时按纯 CPU 运行（短对话约 15.6 t/s，填满 11.6）。
 
 三条规律的成因见 [2.5 节](#25-三条只有在这类平台上才成立的实测规律)。
 
-完整实测记录（含 12 个测试点、内存换算、平台差异）见 [`参数阶梯手册.md`](参数阶梯手册.md)。
+完整实测记录（含显存预算、模型对比、平台差异）见 [`参数阶梯手册.md`](参数阶梯手册.md)。
 
 ---
 
@@ -357,7 +364,7 @@ http://<本机局域网IP>:35035
 | [`参数阶梯手册.md`](参数阶梯手册.md) | 调优者 | 全部实测档位数据、内存换算、平台差异、prefill 上限规律 |
 | [`部署说明.txt`](部署说明.txt) | 维护者 | 构建过程、AVX-512 变体选择、性能实测记录 |
 | [`验收报告.md`](验收报告.md) | 维护者 | 分发验收测试项与结论、修复记录 |
-| [`分发包清单.txt`](分发包清单.txt) | 分发 | 完整分发包每个文件的精确字节数 + SHA256（含 21.3 GB 模型） |
+| [`分发包清单.txt`](分发包清单.txt) | 分发 | 完整分发包每个文件的精确字节数 + SHA256（含 21.2 GB 模型） |
 | [`_维护脚本/说明.md`](_维护脚本/说明.md) | 维护者 | 各脚本作用、踩坑记录 |
 
 ---
@@ -391,25 +398,28 @@ python _维护脚本\gen_check.py     :: 重新生成 环境检查.bat
 ## 十一、已知限制
 
 1. **仅 Windows x64**。脚本是 `.bat`，依赖 `cmd.exe` 与 PowerShell。
-2. **首次对话可能很慢**。服务端 prefill 约 70 token/秒；如果客户端注入了
-   上万 token 的系统提示词或工具定义，光读提示就要几分钟。
+2. **首次对话可能很慢**。纯 CPU 时 prefill 约 70 token/秒（GPU 混合下约 170~200）；
+   如果客户端注入了上万 token 的系统提示词或工具定义，光读提示就要几分钟。
    排查方法：看 `logs\` 里最新日志的 `n_tokens =` 数值。
-3. **CPU 模式下无 GPU 加速**。纯 CPU 推理，生成速度约 13 t/s，不适合高并发。
+3. **CPU 模式下无 GPU 加速**。纯 CPU 推理，生成速度约 15.6 t/s，不适合高并发。
    （有 NVIDIA 独立显卡时**默认启用** GPU 混合卸载，见第三节第 4 步）
 4. **GPU 混合卸载只支持 NVIDIA 独立显卡，且默认就开着**。核显与 AMD / Intel
    显卡一律纯 CPU。它需要用户自备 **CUDA 运行库**（3 个 DLL，≈770 MB，不随
    显卡驱动安装）；CUDA 后端 `ggml-cuda.dll` 二选一取得 —— 自编
    （`_维护脚本\build-cuda-backend.bat`，产物约 32 MB）或从 llama.cpp 官方
-   预编译包取出。在分发包里它是**可选件**（见 `分发包清单.txt`），
-   不带它则一律纯 CPU，不影响使用。
-   收益已实测（GTX 1060 3GB / Pascal / 16K：14.24 → 19.30 t/s，+36%）；
+   预编译包取出。**公开发行包刻意不带它** —— 本项目编出的那一份只含
+   sm_61（Pascal）机器码，放进公开附件对 Ampere/Ada 用户没用还占 30 MB；
+   请按上面任一条自取。缺它时一律纯 CPU，不影响使用。
+   收益已实测（GTX 1060 3GB / Pascal / 16K：15.6 → 23.7 t/s，**+52%**；填满上下文 +90%）；
    自动启用前会先**真跑一次后端设备枚举**，探不到就安静退回纯 CPU，不会拦启动。
    **默认策略刻意不留余量**（448 MiB 只是桌面 + KV + CUDA 上下文的硬开销）：
-   标定用的 3 GB 卡是最坏情况，4 GB 及以上的卡本来就吃不满那 2.53 GiB
+   标定用的 3 GB 卡是最坏情况，4 GB 及以上的卡本来就吃不满那约 1.3 GiB
    非专家权重（会被层数上限封顶），余量天然更大。只有 3 GB 卡同时跑重度
    图形程序时可能越界分页、把速度打回 1/2.4 —— 要留余量就调大 `GPU_RESERVE_MIB`。
    另外 `--fit on` **不能**与 `--cpu-moe` 同用（会让 llama.cpp 放弃适配后
    把全部层塞进显存），脚本已改为自己按显存算层数。
+   顺带一提：本模型**无 MTP 头**；带 MTP 的同规格模型即使不开投机也慢约 14%，
+   开投机更慢（22 → 10.5 t/s），故默认选用无 MTP 版。
 5. **单模型服务**。同时只服务一个模型，不排队、不调度。
 6. **档位速度表是特定硬件实测值**。换 CPU、换内存频率、换模型量化级别后需重测。
 7. **中文路径可用，但仍建议英文路径**。llama.cpp 的 `--api-key-file` 打不开中文路径
@@ -428,7 +438,7 @@ python _维护脚本\gen_check.py     :: 重新生成 环境检查.bat
 | `Microsoft.VC143.CRT` / OpenMP 运行时 | 可再分发 | 来自 Visual Studio 官方 redist，用于 App-local 免安装分发 |
 | **模型权重** | 见模型页 | **不在本仓库内**，请遵守其原始许可 |
 
-模型权重由 [unsloth](https://hf-mirror.com/unsloth/Qwen3.6-35B-A3B-MTP-GGUF) 量化发布，
+模型权重由 [llmfan46 / jorge-erdb](https://hf-mirror.com/llmfan46/Qwen3.6-35B-A3B-uncensored-heretic-GGUF) 量化发布，
 使用前请自行确认其许可条款。
 
 ---

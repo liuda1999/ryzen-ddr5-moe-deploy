@@ -10,7 +10,7 @@ REM ============================================================
 
 set "ROOT=%~dp0"
 set "BIN_DIR=%ROOT%llama.cpp\build-zen5\bin"
-set "MODEL=%ROOT%llama.cpp\models\Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+set "MODEL=%ROOT%llama.cpp\models\Qwen3.6-35B-A3B-uncensored-heretic-Q4_K_M.gguf"
 set "MMPROJ=%ROOT%llama.cpp\models\mmproj-BF16.gguf"
 set "LOG_DIR=%ROOT%logs"
 set "PID_FILE=%LOG_DIR%\server.pid"
@@ -65,7 +65,7 @@ call :CHK_FILE "%MODEL%"
 if exist "%MODEL%" (
   REM 注意：这里必须在 for 体内直接用 %%a 输出。若先 set 再 echo，由于括号块内的
   REM       %VAR% 在整块解析时就展开，会拿到空值（踩过一次的坑）。
-  for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[math]::Round((Get-Item -LiteralPath '%MODEL%').Length/1GB,2)"`) do echo         大小 %%a GB（完整约 21.3 GB，明显偏小说明文件损坏）
+  for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[math]::Round((Get-Item -LiteralPath '%MODEL%').Length/1GB,2)"`) do echo         大小 %%a GB（完整约 19.8 GB，明显偏小说明文件损坏）
 ) else (
   echo         下载地址见 README.md 的「模型下载」一节
   echo         或本机文件 llama.cpp\models\下载模型.md

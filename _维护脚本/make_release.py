@@ -2,7 +2,7 @@
 """打包「不含模型」的免安装发行包，供 GitHub Releases 附件使用。
 
 用法：
-    python make_release.py                 # 版本号取 0.1.0
+    python make_release.py                 # 版本号取 0.2.0
     python make_release.py 0.2.0           # 指定版本号
     python make_release.py 0.1.0 D:\\out   # 指定输出目录
 
@@ -17,6 +17,14 @@
 
 不打进包的内容：
     - 模型文件（22 GB+）、构建中间产物、源码树、日志、密钥
+    - **CUDA 后端 ggml-cuda.dll**（见 BIN_SKIP）
+
+为什么排除 ggml-cuda.dll（2026-10-15 定）：
+    它是可选组件，且本项目编出的那一份只含 sm_61（Pascal）机器码 ——
+    放到公开附件里，Ampere / Ada 用户下完也用不了，只会白占 30 MB 并
+    引来误解。公开包维持「零 CUDA 二进制」，需要的人在 README 里按
+    「自编 _维护脚本\\build-cuda-backend.bat」或「取官方预编译包」两条路自取。
+    启动脚本的 GPU_MODE=auto 在缺这个文件时会自动退回纯 CPU，不影响使用。
 """
 import io
 import os
@@ -57,6 +65,11 @@ EXTRA_FILES = [
 # 维护脚本目录里需要跳过的内容
 MAINT_SKIP = {"_历史补丁", "__pycache__", "_旧脚本备份"}
 
+# bin\ 里不打包的文件名（精确匹配，大小写不敏感）
+# ggml-cuda.dll：可选组件，且本地那份只含 sm_61（Pascal）机器码，
+# 放进公开包对其它代际的卡没用。详见文件头说明。
+BIN_SKIP = {"ggml-cuda.dll"}
+
 
 def collect_maint():
     """收集 _维护脚本 下的活跃文件（递归，跳过历史补丁与缓存）。"""
@@ -75,7 +88,7 @@ def collect_maint():
 
 
 def main():
-    version = sys.argv[1] if len(sys.argv) > 1 else "0.1.0"
+    version = sys.argv[1] if len(sys.argv) > 1 else "0.2.0"
     outdir = sys.argv[2] if len(sys.argv) > 2 else "E:\\llm-cpp-release"
 
     name = "ryzen-ddr5-moe-deploy-%s-no-model.zip" % version
@@ -100,6 +113,9 @@ def main():
             print("  [警告] 缺少目录，已跳过：%s" % reldir)
             continue
         for fn in sorted(os.listdir(full)):
+            if fn.lower() in {s.lower() for s in BIN_SKIP}:
+                print("  [排除] %s（可选组件，不入公开包）" % os.path.join(reldir, fn))
+                continue
             p = os.path.join(full, fn)
             if os.path.isfile(p):
                 members.append((p, os.path.join(reldir, fn)))

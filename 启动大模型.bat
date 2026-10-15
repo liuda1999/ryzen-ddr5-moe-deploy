@@ -12,9 +12,9 @@ REM     服务已运行  ->  默认关闭服务（也可选择重启、打开网页、看日志）
 REM
 REM   命令行用法：
 REM     启动大模型.bat               交互模式（自动判断启动或关闭）
-REM     启动大模型.bat start  [1-5]  启动（档位可省，默认 2）
+REM     启动大模型.bat start  [1-4]  启动（档位可省，默认 2）
 REM     启动大模型.bat stop          关闭
-REM     启动大模型.bat restart [1-5] 重启
+REM     启动大模型.bat restart [1-4] 重启
 REM     启动大模型.bat status        只看状态
 REM     启动大模型.bat check         只做环境与安全检查
 REM
@@ -32,7 +32,8 @@ REM
 REM   GPU 混合卸载（只针对 NVIDIA 独立显卡；核显与非 N 卡一律按纯 CPU）：
 REM     默认开启（GPU_MODE=auto）。把「每 token 必读」的那部分权重放进显存，
 REM     体积最大的 MoE 专家权重仍留在内存（它们每 token 只用到 8/256）。
-REM     实测：非专家权重仅 2.53 GiB，占总权重 11.9%。
+REM     实测：卸载到显存的非专家权重仅约 1.3 GiB（40 层），占总量约 6%；
+REM     32K 上下文的 KV 只占约 640 MiB（该模型为混合注意力，KV 增长很慢）。
 REM     GPU 不可用时（没 N 卡 / 没后端 / 没 CUDA 运行库 / 显存太小）会自动
 REM     退回纯 CPU，不会阻止启动 —— 所以默认开着是安全的，CPU 永远兜底。
 REM     关闭方式（三者其一）：
@@ -51,7 +52,7 @@ REM ============================================================
 
 set "ROOT=%~dp0"
 set "BIN_DIR=%ROOT%llama.cpp\build-zen5\bin"
-set "MODEL=%ROOT%llama.cpp\models\Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+set "MODEL=%ROOT%llama.cpp\models\Qwen3.6-35B-A3B-uncensored-heretic-Q4_K_M.gguf"
 set "MMPROJ=%ROOT%llama.cpp\models\mmproj-BF16.gguf"
 set "SERVER_EXE=%BIN_DIR%\llama-server.exe"
 set "LOG_DIR=%ROOT%logs"
@@ -161,7 +162,7 @@ if /i "%~1"=="restart" goto :ARG_RESTART
 if "%~1"==""           goto :MAIN
 echo [错误] 未知参数：%~1
 echo.
-echo 用法：启动大模型.bat [start^|stop^|restart^|status^|check] [档位1-5]
+echo 用法：启动大模型.bat [start^|stop^|restart^|status^|check] [档位1-4]
 echo.
 call :PAUSE_IF
 exit /b 1
@@ -316,21 +317,21 @@ cls
 echo ============================================================
 echo   Qwen3.6-35B 本地大模型 · 服务未运行
 echo ============================================================
-echo   模型   Qwen3.6-35B-A3B-UD-Q4_K_XL（MoE，21.3 GB）
-echo   后端   纯 CPU · AVX-512 + VNNI + VBMI（icelake 变体）
+echo   模型   Qwen3.6-35B-A3B-uncensored-heretic Q4_K_M（MoE，21.2 GB）
+echo   后端   纯 CPU（AVX-512+VNNI+VBMI）· 有 N 卡时自动启用显存混合卸载
 echo.
 echo ------------------------------------------------------------
-echo   请选择配置档位（越往上生成越快，越往下上下文越长）
+echo   请选择配置档位（越往下上下文越长；有 N 卡时自动启用显存加速）
 echo ------------------------------------------------------------
-echo   1   极速档    12K 上下文 / 24 线程    约 13.3 t/s   需内存 ~28 GB
-echo   2   实用档    16K 上下文 / 24 线程    约 12.7 t/s   需内存 ~30 GB   [默认]
-echo   3   长文档    24K 上下文 / 24 线程    约 11.8 t/s   需内存 ~34 GB
-echo   4   超长档    32K 上下文 / 24 线程    约 10.0 t/s   需内存 ~38 GB
-echo   5   极限档    64K 上下文 / 28 线程    约  4.3 t/s   需内存 ~55 GB（很慢）
+echo   1   极速档    12K 上下文 / 24 线程    约 22~24 t/s   需内存 ~24 GB
+echo   2   实用档    16K 上下文 / 24 线程    约 22~24 t/s   需内存 ~24 GB   [默认]
+echo   3   长文档    24K 上下文 / 24 线程    约 21~24 t/s   需内存 ~25 GB
+echo   4   超长档    32K 上下文 / 24 线程    约 20~24 t/s   需内存 ~25 GB
 echo.
 echo   0   退出
 echo ------------------------------------------------------------
-echo   说明：24 线程在所有档位的生成速度都优于 28 线程（内存带宽瓶颈）。
+echo   说明：区间上限=短对话，下限=上下文填满后；生成速度与上下文长度关系不大，
+echo         填满 32K 时约 20 t/s。无 N 卡时按纯 CPU 运行（约 15 t/s）。
 echo         完整实测数据见 参数阶梯手册.md
 echo.
 set "TIER="
@@ -450,7 +451,7 @@ REM    3. 保留 < nul：避免服务持有本窗口的输入句柄导致脚本卡住。
 REM ------------------------------------------------------------
 powershell -NoProfile -Command "$q=[char]34; $c='cmd /c ' + $q + $q + '%SERVER_EXE%' + $q + ' --model ' + $q + '%MODEL%' + $q + ' --mmproj ' + $q + '%MMPROJ%' + $q + ' --host %HOST% --port %PORT% --api-key %API_KEY% --reasoning %THINK% --ctx-size %CTX% --threads %THREADS% --threads-batch %THREADS% %GPU_ARGS% < nul > ' + $q + '%LOG_FILE%' + $q + ' 2>&1' + $q; (New-Object -ComObject WScript.Shell).Run($c, 0, $false)"
 
-echo [信息] 正在加载 21.3 GB 模型到内存，请稍候（通常 30~90 秒）...
+echo [信息] 正在加载 19.8 GB 模型到内存，请稍候（通常 30~90 秒）...
 echo [信息] 日志：%LOG_FILE%
 echo.
 
@@ -723,11 +724,10 @@ REM  子程序：档位 -> 参数
 REM ============================================================
 :APPLY_TIER
 set "CTX="
-if "%TIER%"=="1" ( set "CTX=12288" & set "THREADS=24" & set "TIER_NAME=极速档" & set "NEED_GB=28" )
-if "%TIER%"=="2" ( set "CTX=16384" & set "THREADS=24" & set "TIER_NAME=实用档" & set "NEED_GB=30" )
-if "%TIER%"=="3" ( set "CTX=24576" & set "THREADS=24" & set "TIER_NAME=长文档档" & set "NEED_GB=34" )
-if "%TIER%"=="4" ( set "CTX=32768" & set "THREADS=24" & set "TIER_NAME=超长档" & set "NEED_GB=38" )
-if "%TIER%"=="5" ( set "CTX=65536" & set "THREADS=28" & set "TIER_NAME=极限档" & set "NEED_GB=55" )
+if "%TIER%"=="1" ( set "CTX=12288" & set "THREADS=24" & set "TIER_NAME=极速档" & set "NEED_GB=24" )
+if "%TIER%"=="2" ( set "CTX=16384" & set "THREADS=24" & set "TIER_NAME=实用档" & set "NEED_GB=24" )
+if "%TIER%"=="3" ( set "CTX=24576" & set "THREADS=24" & set "TIER_NAME=长文档档" & set "NEED_GB=25" )
+if "%TIER%"=="4" ( set "CTX=32768" & set "THREADS=24" & set "TIER_NAME=超长档" & set "NEED_GB=25" )
 exit /b 0
 
 REM ============================================================
@@ -735,11 +735,10 @@ REM  子程序：按当前可用内存列出各档位可行性
 REM ============================================================
 :SHOW_TIER_FIT
 echo   当前可用内存 %FREE_GB% GB（共 %TOTAL_GB% GB）下的档位情况：
-call :FIT_LINE 1 极速档   28
-call :FIT_LINE 2 实用档   30
-call :FIT_LINE 3 长文档档 34
-call :FIT_LINE 4 超长档   38
-call :FIT_LINE 5 极限档   55
+call :FIT_LINE 1 极速档   24
+call :FIT_LINE 2 实用档   24
+call :FIT_LINE 3 长文档档 25
+call :FIT_LINE 4 超长档   25
 exit /b 0
 
 :FIT_LINE
@@ -799,7 +798,6 @@ if "%CUR_TIER%"=="1" set "CUR_TIER_NAME=极速档"
 if "%CUR_TIER%"=="2" set "CUR_TIER_NAME=实用档"
 if "%CUR_TIER%"=="3" set "CUR_TIER_NAME=长文档档"
 if "%CUR_TIER%"=="4" set "CUR_TIER_NAME=超长档"
-if "%CUR_TIER%"=="5" set "CUR_TIER_NAME=极限档"
 exit /b 0
 
 REM ============================================================
@@ -1152,7 +1150,7 @@ call :CHK_FILE "%MODEL%"
 if exist "%MODEL%" (
   for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[math]::Round((Get-Item -LiteralPath '%MODEL%').Length/1GB,2)"`) do set "MODEL_GB=%%a"
 )
-if exist "%MODEL%" echo         大小 %MODEL_GB% GB（完整模型应约 21.3 GB）
+if exist "%MODEL%" echo         大小 %MODEL_GB% GB（完整模型应约 19.8 GB）
 
 call :CHK_NEXT
 echo [5/10] 视觉投影（多模态）
