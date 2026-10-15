@@ -197,6 +197,7 @@ echo   内存占用   %SRV_MEM% GB
 echo   配置档位   %CUR_TIER_NAME% （上下文 %CUR_CTX% / 线程 %CUR_T%）
 call :SHOW_CUR_THINK
 echo   启动时间   %CUR_TIME%
+set "GPU_REQ=%CUR_GPU%"
 set "GPU_LOG_STAMP=%CUR_TIME%"
 call :SHOW_GPU_ACTUAL
 call :SHOW_ADDR
@@ -261,6 +262,7 @@ echo   内存占用   %SRV_MEM% GB
 echo   配置档位   %CUR_TIER_NAME% （上下文 %CUR_CTX% / 线程 %CUR_T%）
 call :SHOW_CUR_THINK
 echo   启动时间   %CUR_TIME%
+set "GPU_REQ=%CUR_GPU%"
 set "GPU_LOG_STAMP=%CUR_TIME%"
 call :SHOW_GPU_ACTUAL
 call :SHOW_ADDR
@@ -494,13 +496,14 @@ exit /b 1
 :READY_OK
 call :GET_LAN_IP
 call :LOAD_KEY
->"%PID_FILE%" echo %SRV_PID%^|%TIER%^|%CTX%^|%THREADS%^|%STAMP%^|%THINK%
+>"%PID_FILE%" echo %SRV_PID%^|%TIER%^|%CTX%^|%THREADS%^|%STAMP%^|%THINK%^|%GPU_MODE%
 echo.
 echo ============================================================
 echo   启动成功，服务已就绪
 echo ============================================================
 echo   档位      %TIER_NAME%（上下文 %CTX% / 线程 %THREADS%）
 call :SHOW_THINK
+set "GPU_REQ=%GPU_MODE%"
 set "GPU_LOG_STAMP=%STAMP%"
 call :SHOW_GPU_ACTUAL
 echo   进程 PID  %SRV_PID%
@@ -753,17 +756,20 @@ set "CUR_CTX="
 set "CUR_T="
 set "CUR_TIME="
 set "CUR_THINK=off"
+set "CUR_GPU=off"
 set "CUR_TIER_NAME=未知档位"
 if not exist "%PID_FILE%" exit /b 0
-for /f "usebackq tokens=1-6 delims=|" %%a in ("%PID_FILE%") do (
+for /f "usebackq tokens=1-7 delims=|" %%a in ("%PID_FILE%") do (
   set "CUR_PID=%%a"
   set "CUR_TIER=%%b"
   set "CUR_CTX=%%c"
   set "CUR_T=%%d"
   set "CUR_TIME=%%e"
   set "CUR_THINK=%%f"
+  set "CUR_GPU=%%g"
 )
 if not defined CUR_THINK set "CUR_THINK=off"
+if not defined CUR_GPU set "CUR_GPU=off"
 if "%CUR_TIER%"=="1" set "CUR_TIER_NAME=极速档"
 if "%CUR_TIER%"=="2" set "CUR_TIER_NAME=实用档"
 if "%CUR_TIER%"=="3" set "CUR_TIER_NAME=长文档档"
@@ -830,40 +836,105 @@ REM
 REM  包里只编 CUDA 后端，所以「列表里有设备」等价于「有可用的 N 卡」；
 REM  核显与非 N 卡根本不会出现在列表里，无需额外排除逻辑。
 REM
-REM  以下任一情况都会让列表为空或解析不出内容 → GPU_AVAILABLE=0
+REM  以下任一情况都会让列表解析不出内容 → GPU_AVAILABLE=0
 REM  → 自动退回纯 CPU，不阻断启动：
 REM    没有 ggml-cuda.dll / 没有 N 卡 / 驱动过老 /
 REM    缺 CUDA 运行库(cublas) / 后端 API 版本不匹配
+REM
+REM  注意（踩过一次的坑）：重定向会先把输出文件建出来，所以
+REM  「文件存在」并不能说明探测成功，必须靠「解析出来的内容是否为空」判断。
 REM ============================================================
 :GPU_PROBE
+REM 同一轮里可能被调用两次（检查项一次、启动前一次），结果缓存起来避免重复探测
+if "%GPU_PROBED%"=="1" exit /b 0
+set "GPU_PROBED=1"
 set "GPU_AVAILABLE=0"
 set "GPU_NAME="
+set "GPU_DEV_ID="
+set "GPU_DEV_IDS="
 set "GPU_TOTAL_MIB=0"
 set "GPU_FREE_MIB=0"
 set "GPU_PROBE_NOTE="
 if not exist "%BIN_DIR%\ggml-cuda.dll" (
-  set "GPU_PROBE_NOTE=未找到 CUDA 后端 ggml-cuda.dll（详见环境检查的 GPU 支持自检）"
+  set "GPU_PROBE_NOTE=未找到 CUDA 后端 ggml-cuda.dll（见 环境检查.bat 第 11 项）"
   exit /b 0
 )
-"%SERVER_EXE%" --list-devices > "%TEMP%\llm_gpu_dev.txt" 2>nul
-if not exist "%TEMP%\llm_gpu_dev.txt" (
-  set "GPU_PROBE_NOTE=后端探测没有输出"
-  exit /b 0
-)
+REM stdout 与 stderr 都收：设备列表走 stdout，后端的告警走 stderr
+set "GPUTMP=%TEMP%\llm_gpu_probe.txt"
+"%SERVER_EXE%" --list-devices > "%GPUTMP%" 2>&1
+call :CP_RESET
 REM 解析形如：  CUDA0: NVIDIA GeForce GTX 1660 (6144 MiB, 5312 MiB free)
-powershell -NoProfile -Command "$t=Get-Content -LiteralPath '%TEMP%\llm_gpu_dev.txt' -ErrorAction SilentlyContinue; foreach($l in $t){ if($l -match '^\s*[^:]+:\s*(.+?)\s*\((\d+)\s*MiB,\s*(\d+)\s*MiB free\)'){ Write-Output ($matches[1] + '|' + $matches[2] + '|' + $matches[3]); break } }" > "%TEMP%\llm_gpu_one.txt" 2>nul
-del "%TEMP%\llm_gpu_dev.txt" >nul 2>nul
-if not exist "%TEMP%\llm_gpu_one.txt" (
-  set "GPU_PROBE_NOTE=后端未列出任何设备（无 N 卡／驱动过老／缺 CUDA 运行库）"
+REM 四组：设备名 / 型号描述 / 总显存 / 空闲显存。收集全部设备，
+REM 主设备取第一台，全部设备名供 manual 模式的 --device 校验用。
+for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "$t=Get-Content -LiteralPath '%GPUTMP%' -ErrorAction SilentlyContinue; foreach($l in $t){ if($l -match '^\s*([^:\s]+)\s*:\s*(.+?)\s*\((\d+)\s*MiB,\s*(\d+)\s*MiB free\)'){ Write-Output ($matches[1] + '|' + $matches[2] + '|' + $matches[3] + '|' + $matches[4]) } }"`) do call :GPU_TAKE "%%a"
+del "%GPUTMP%" >nul 2>nul
+if not defined GPU_DEV_ID (
+  call :GPU_WHY
   exit /b 0
 )
-for /f "usebackq tokens=1,2,3 delims=|" %%a in ("%TEMP%\llm_gpu_one.txt") do (
-  set "GPU_NAME=%%a"
-  set "GPU_TOTAL_MIB=%%b"
-  set "GPU_FREE_MIB=%%c"
-  set "GPU_AVAILABLE=1"
+set "GPU_AVAILABLE=1"
+exit /b 0
+
+:GPU_TAKE
+for /f "tokens=1,2,3,4 delims=|" %%a in ("%~1") do call :GPU_TAKE_ONE "%%a" "%%b" "%%c" "%%d"
+exit /b 0
+
+REM 这里必须用 call 逐条处理：for 循环体内的 %VAR% 在整块解析时只展开一次，
+REM 直接写 set "GPU_DEV_IDS=%GPU_DEV_IDS% ..." 会丢掉前面的累积结果。
+:GPU_TAKE_ONE
+if not defined GPU_DEV_ID (
+  set "GPU_DEV_ID=%~1"
+  set "GPU_NAME=%~2"
+  set "GPU_TOTAL_MIB=%~3"
+  set "GPU_FREE_MIB=%~4"
 )
-del "%TEMP%\llm_gpu_one.txt" >nul 2>nul
+set "GPU_DEV_IDS=%GPU_DEV_IDS% %~1"
+exit /b 0
+
+REM ============================================================
+REM  子程序：探测不到设备时细分原因
+REM  旧卡用户最常缺的是 CUDA 运行库 —— 它不随显卡驱动安装，
+REM  只给一句「后端未列出设备」会让人无从下手。
+REM
+REM  运行库的查找顺序与 Windows 的 DLL 解析一致：先看 bin\（exe 同目录），
+REM  再看 PATH。装过 CUDA / PyTorch 的机器往往只有 PATH 里有。
+REM ============================================================
+:GPU_WHY
+call :GPU_LIB_OK cublas64_12.dll
+set "GW_A=%GW_LIB_OK%"
+call :GPU_LIB_OK cublasLt64_12.dll
+set "GW_B=%GW_LIB_OK%"
+if "%GW_A%%GW_B%"=="11" goto :GW_NEXT
+set "GPU_PROBE_NOTE=缺 CUDA 运行库 cublas64_12.dll / cublasLt64_12.dll，后端无法加载"
+exit /b 0
+:GW_NEXT
+if not exist "%SystemRoot%\System32\nvcuda.dll" (
+  set "GPU_PROBE_NOTE=缺少 nvcuda.dll：NVIDIA 显卡驱动没装好或版本过老"
+  exit /b 0
+)
+set "GPU_PROBE_NOTE=后端没认出设备：驱动过老、后端与运行库版本不匹配、或本机确实没有 N 卡"
+exit /b 0
+
+:GPU_LIB_OK
+set "GW_LIB_OK=0"
+if exist "%BIN_DIR%\%~1" set "GW_LIB_OK=1"
+if "%GW_LIB_OK%"=="1" exit /b 0
+where %~1 >nul 2>nul
+if not errorlevel 1 set "GW_LIB_OK=1"
+exit /b 0
+
+REM ============================================================
+REM  子程序：把控制台代码页改回 936
+REM
+REM  必须调：llama-server 启动时会在 common_init() 里执行
+REM  SetConsoleOutputCP(CP_UTF8) / SetConsoleCP(CP_UTF8)，
+REM  而探测是在「本脚本所在的这个控制台」里跑的，于是它把整个窗口
+REM  的代码页改成了 65001 —— 之后本脚本用 GBK 写的中文全部变成乱码
+REM  （连 pause 的提示都会变英文）。实测 936 -> 65001。
+REM  所以每次在控制台里调用过 llama-server 之后都要改回来。
+REM ============================================================
+:CP_RESET
+chcp 936 >nul 2>nul
 exit /b 0
 
 REM ============================================================
@@ -906,6 +977,7 @@ exit /b 0
 :BGA_MANUAL
 REM ---------- manual ----------
 set "GPU_ARGS="
+if defined GPU_DEVICE call :CHECK_GPU_DEVICE
 if defined GPU_DEVICE set "GPU_ARGS=--device %GPU_DEVICE%"
 if defined GPU_LAYERS set "GPU_ARGS=%GPU_ARGS% --n-gpu-layers %GPU_LAYERS%"
 if not defined GPU_LAYERS set "GPU_ARGS=%GPU_ARGS% --n-gpu-layers 0"
@@ -915,6 +987,23 @@ if defined MOE_CACHE_MIB set "GPU_ARGS=%GPU_ARGS% --moe-cache-mib %MOE_CACHE_MIB
 if /i "%KV_OFFLOAD%"=="off" set "GPU_ARGS=%GPU_ARGS% -nkvo"
 if /i "%KV_OFFLOAD%"=="on" set "GPU_ARGS=%GPU_ARGS% -kvo"
 set "GPU_STRATEGY=手动指定"
+exit /b 0
+
+REM ============================================================
+REM  子程序：核对手工指定的 --device
+REM  llama-server 对写错的设备名是「直接报错退出」，服务根本起不来，
+REM  所以在拼参数之前先跟后端列出的设备名核对一次，对不上就退回自动选择。
+REM ============================================================
+:CHECK_GPU_DEVICE
+set "DEVOK="
+for %%d in (%GPU_DEV_IDS%) do if /i "%%d"=="%GPU_DEVICE%" set "DEVOK=1"
+if defined DEVOK exit /b 0
+echo.
+echo   [警告] GPU_DEVICE=%GPU_DEVICE% 不在后端列出的设备里
+echo          后端探测到：%GPU_DEV_IDS%
+echo          若照此启动，llama-server 会因 invalid device 直接退出，
+echo          已改为自动选择设备。
+set "GPU_DEVICE="
 exit /b 0
 
 REM ============================================================
@@ -938,15 +1027,19 @@ REM  llama.cpp 会打印：
 REM    load_tensors: offloaded 41/41 layers to GPU
 REM ============================================================
 :SHOW_GPU_ACTUAL
+REM GPU_REQ 由调用方设置：启动路径 = GPU_MODE，status / 运行中菜单 = 记录下来的 CUR_GPU。
+REM 旧状态文件没有这一项时为空，按 off 处理 —— 即不显示这一行，与旧版输出一致。
 if "%GPU_LOG_STAMP%"=="" exit /b 0
 set "GLOG=%LOG_DIR%\server-%GPU_LOG_STAMP%.log"
 if not exist "%GLOG%" exit /b 0
 set "GCLAUSE="
 for /f "usebackq delims=" %%a in (`findstr /c:"load_tensors: offloaded" "%GLOG%"`) do set "GCLAUSE=%%a"
-if not defined GCLAUSE (
-  echo   GPU 层分配 未启用（纯 CPU 运行）
-  exit /b 0
-)
+if defined GCLAUSE goto :SGA_SHOW
+if not defined GPU_REQ exit /b 0
+if /i "%GPU_REQ%"=="off" exit /b 0
+echo   GPU 层分配 未启用，本次为纯 CPU 运行（已请求 GPU，原因见 环境检查.bat 第 11 项）
+exit /b 0
+:SGA_SHOW
 set "GCLAUSE=%GCLAUSE:*load_tensors: =%"
 echo   GPU 层分配 %GCLAUSE%
 exit /b 0
@@ -959,12 +1052,12 @@ set "CHK_FAIL=0"
 set "CHK_N=0"
 
 call :CHK_NEXT
-echo [1/9] 可执行程序
+echo [1/10] 可执行程序
 call :CHK_FILE "%SERVER_EXE%"
 call :CHK_FILE "%BIN_DIR%\llama-cli.exe"
 
 call :CHK_NEXT
-echo [2/9] 依赖动态库
+echo [2/10] 依赖动态库
 call :CHK_FILE "%BIN_DIR%\llama.dll"
 call :CHK_FILE "%BIN_DIR%\llama-common.dll"
 call :CHK_FILE "%BIN_DIR%\ggml.dll"
@@ -975,7 +1068,7 @@ call :CHK_FILE "%BIN_DIR%\msvcp140.dll"
 call :CHK_FILE "%BIN_DIR%\vcomp140.dll"
 
 call :CHK_NEXT
-echo [3/9] CPU 指令集后端（AVX-512 关键）
+echo [3/10] CPU 指令集后端（AVX-512 关键）
 call :CHK_FILE "%BIN_DIR%\ggml-cpu-icelake.dll"
 if not exist "%BIN_DIR%\ggml-cpu-icelake.dll" goto :TISA_NONE
 if exist "%BIN_DIR%\ggml-cpu-cascadelake.dll" (
@@ -997,7 +1090,7 @@ echo         提示    icelake 变体缺失，需重新编译补齐（见上方 [失败] 项）
 :TISA_END
 
 call :CHK_NEXT
-echo [4/9] 模型文件
+echo [4/10] 模型文件
 call :CHK_FILE "%MODEL%"
 if exist "%MODEL%" (
   for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[math]::Round((Get-Item -LiteralPath '%MODEL%').Length/1GB,2)"`) do set "MODEL_GB=%%a"
@@ -1005,7 +1098,7 @@ if exist "%MODEL%" (
 if exist "%MODEL%" echo         大小 %MODEL_GB% GB（完整模型应约 21.3 GB）
 
 call :CHK_NEXT
-echo [5/9] 视觉投影（多模态）
+echo [5/10] 视觉投影（多模态）
 if exist "%MMPROJ%" (
   echo         正常    mmproj-BF16.gguf
 ) else (
@@ -1013,7 +1106,7 @@ if exist "%MMPROJ%" (
 )
 
 call :CHK_NEXT
-echo [6/9] 端口 %PORT% 占用
+echo [6/10] 端口 %PORT% 占用
 call :PORT_BUSY
 if "%PORT_STATE%"=="busy" (
   echo         [失败]  端口已被进程 %PORT_PID% 占用，本次启动会失败
@@ -1024,7 +1117,7 @@ if "%PORT_STATE%"=="busy" (
 )
 
 call :CHK_NEXT
-echo [7/9] 磁盘剩余空间
+echo [7/10] 磁盘剩余空间
 set "DL=%ROOT:~0,1%"
 for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[int]((Get-PSDrive -Name '%DL%').Free/1GB)"`) do set "DISK_GB=%%a"
 if %DISK_GB% LSS 2 (
@@ -1035,7 +1128,7 @@ if %DISK_GB% LSS 2 (
 )
 
 call :CHK_NEXT
-echo [8/9] 重复实例
+echo [8/10] 重复实例
 call :DETECT
 if defined SRV_PID (
   echo         [失败]  已有 llama-server 实例在运行（PID %SRV_PID%），不能重复启动
@@ -1046,7 +1139,7 @@ if defined SRV_PID (
 call :CLEAN_STALE_PID
 
 call :CHK_NEXT
-echo [9/9] 访问密钥与局域网
+echo [9/10] 访问密钥与局域网
 call :ENSURE_KEY
 if exist "%KEY_FILE%" (
   call :LOAD_KEY
@@ -1066,6 +1159,31 @@ if defined LAN_IP (
 ) else (
   echo         [警告]  未检测到局域网 IPv4，其它设备可能无法访问
 )
+
+call :CHK_NEXT
+echo [10/10] 显卡（NVIDIA 独显混合卸载）
+REM 这一项只报「能不能用」，永远不设 [失败] —— GPU 不可用时服务照样能
+REM 以纯 CPU 跑起来，不该因为显卡的事把启动拦掉。
+if /i not "%GPU_MODE%"=="off" goto :TGPU_REQ
+if not exist "%BIN_DIR%\ggml-cuda.dll" goto :TGPU_PLAIN
+echo         提示    检测到 CUDA 后端，但 GPU_MODE=off，本次仍按纯 CPU 运行
+echo                 想启用：启动大模型.bat start 2 gpu   或把顶部 GPU_MODE 改成 auto
+goto :TGPU_END
+:TGPU_PLAIN
+echo         提示    未启用（GPU_MODE=off），本次按纯 CPU 运行
+echo                 有 N 卡想加速：跑 环境检查.bat 看第 11 项「GPU 支持自检」
+goto :TGPU_END
+:TGPU_REQ
+call :GPU_PROBE
+if "%GPU_AVAILABLE%"=="1" (
+  echo         正常    %GPU_NAME%
+  echo                 显存 %GPU_TOTAL_MIB% MiB 总 / %GPU_FREE_MIB% MiB 空闲，本次将启用 GPU 混合卸载
+) else (
+  echo         [警告]  已请求 GPU 但不可用，本次退回纯 CPU 运行
+  echo                 %GPU_PROBE_NOTE%
+  echo                 排查：跑 环境检查.bat 看第 11 项「GPU 支持自检」
+)
+:TGPU_END
 exit /b 0
 
 :CHK_NEXT

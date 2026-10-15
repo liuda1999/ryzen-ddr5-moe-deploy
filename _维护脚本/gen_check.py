@@ -235,23 +235,27 @@ echo              放进 llama.cpp\build-zen5\bin\
 echo           3  安装官方 CUDA Toolkit 12.8，约 3 GB，可只勾 Runtime 组件
 echo         注意：必须是 12.x 系列。CUDA 13.0 起已不支持 Maxwell / Pascal / Volta 旧卡。
 :P11_BACKEND
-if exist "%BIN_DIR%\ggml-cuda.dll" (
-  echo         正常    CUDA 后端 ggml-cuda.dll 存在
-  echo                 可用 启动大模型.bat start 2 gpu 试跑 GPU 混合卸载
-) else (
-  echo         [警告]  未找到 CUDA 后端 ggml-cuda.dll
-  echo                 它不是显卡驱动，而是 llama.cpp 的 CUDA 后端文件。
-  echo                 获取方式：下载 llama.cpp 官方 Windows CUDA 预编译包，
-  echo                 取出其中的 ggml-cuda.dll 放进
-  echo                 llama.cpp\build-zen5\bin\
-  echo                 要求：后端 API 版本须与本项目一致，否则会被拒绝加载
-  echo                 并自动退回纯 CPU。放好后重跑本检查即可确认。
-  set "WARN=1"
-)
+if not exist "%BIN_DIR%\ggml-cuda.dll" goto :P11_NOBACKEND
+echo         正常    CUDA 后端 ggml-cuda.dll 存在
+call :P11_PROBE
+goto :P11_END
+:P11_NOBACKEND
+echo         [警告]  未找到 CUDA 后端 ggml-cuda.dll
+echo                 它不是显卡驱动，而是 llama.cpp 的 CUDA 后端文件。
+echo                 获取方式：下载 llama.cpp 官方 Windows CUDA 预编译包，
+echo                 取出其中的 ggml-cuda.dll 放进
+echo                 llama.cpp\build-zen5\bin\
+echo                 要求：后端 API 版本须与本项目一致，否则会被拒绝加载
+echo                 并自动退回纯 CPU。放好后重跑本检查即可确认。
+set "WARN=1"
 goto :P11_END
 :P11_NONV
-echo         提示    未检测到 NVIDIA 独立显卡
-echo                 将按纯 CPU 运行 —— 这是正常情况，无需任何处理。
+echo         提示    未检测到 NVIDIA 独立显卡（按系统设备列表判断）
+if not exist "%BIN_DIR%\ggml-cuda.dll" goto :P11_NONV_END
+echo                 不过库里已有 CUDA 后端，再做一次后端实测确认：
+call :P11_PROBE
+:P11_NONV_END
+echo                 按纯 CPU 运行即可 —— 这是正常情况，无需处理。
 echo                 核显与 AMD / Intel 显卡同样按纯 CPU 处理。
 :P11_END
 echo.
@@ -394,6 +398,52 @@ if defined CL_FOUND (
   echo         [警告]  缺少 %~1
   set "CUDA_LIB_MISS=1"
 )
+exit /b 0
+
+REM ============================================================
+REM  子程序：GPU 后端实测
+REM
+REM  前面几步只能说明「系统里有 N 卡、文件也在」，但那只代表条件具备；
+REM  只有后端自己列得出设备，才等于「llama.cpp 真的能用它」。
+REM  所以这里跑一次 llama-server --list-devices 作为最终判定。
+REM
+REM  解析形如：  CUDA0: NVIDIA GeForce GTX 1660 (6144 MiB, 5312 MiB free)
+REM  无设备时后端只会打印「  (none)」，匹配不上，正好判空。
+REM ============================================================
+:P11_PROBE
+set "P11TMP=%TEMP%\llm_check_gpu.txt"
+"%BIN_DIR%\llama-server.exe" --list-devices > "%P11TMP%" 2>&1
+REM 必须改回代码页：llama-server 会在 common_init() 里
+REM SetConsoleOutputCP(CP_UTF8)，把本控制台从 936 改成 65001，
+REM 不改回来的话本脚本后面所有 GBK 中文都会变成乱码（已实测）。
+call :CP_RESET
+set "P11DEV="
+for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "$t=Get-Content -LiteralPath '%P11TMP%' -ErrorAction SilentlyContinue; foreach($l in $t){ if($l -match '^\s*([^:\s]+)\s*:\s*(.+?)\s*\((\d+)\s*MiB,\s*(\d+)\s*MiB free\)'){ Write-Output ($matches[1] + '|' + $matches[2] + '|' + $matches[3] + '|' + $matches[4]); break } }"`) do set "P11DEV=%%a"
+del "%P11TMP%" >nul 2>nul
+if not defined P11DEV goto :P11_PROBE_FAIL
+for /f "tokens=1,2,3,4 delims=|" %%a in ("%P11DEV%") do (
+  echo         正常    后端实测可用：%%b
+  echo                 设备 %%a，显存 %%c MiB 总 / %%d MiB 空闲
+  echo                 启用方式：启动大模型.bat start 2 gpu
+)
+exit /b 0
+:P11_PROBE_FAIL
+echo         [警告]  后端实测未列出任何设备
+echo                 说明 llama.cpp 目前用不上这块卡。常见成因：
+echo                   显卡驱动过老
+echo                   CUDA 运行库与后端版本不匹配
+echo                   后端 API 版本与本项目不一致（会被拒绝加载）
+echo                 看原始输出确认：
+echo                   llama.cpp\build-zen5\bin\llama-server.exe --list-devices
+set "WARN=1"
+exit /b 0
+
+REM ============================================================
+REM  子程序：把控制台代码页改回 936
+REM  同上：在控制台里跑过 llama-server 之后必须调用。
+REM ============================================================
+:CP_RESET
+chcp 936 >nul 2>nul
 exit /b 0
 '''
 
