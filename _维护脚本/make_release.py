@@ -7,7 +7,7 @@
     python make_release.py 0.1.0 D:\\out   # 指定输出目录
 
 输出：
-    <输出目录>\\qwen3.6-35b-a3b-cpu-deploy-<版本>-no-model.zip
+    <输出目录>\\ryzen-ddr5-moe-deploy-<版本>-no-model.zip
 
 打进包的内容 = 能直接跑起来的最小集合：
     - 根目录脚本与文档（含 README / LICENSE）
@@ -78,7 +78,7 @@ def main():
     version = sys.argv[1] if len(sys.argv) > 1 else "0.1.0"
     outdir = sys.argv[2] if len(sys.argv) > 2 else "E:\\llm-cpp-release"
 
-    name = "qwen3.6-35b-a3b-cpu-deploy-%s-no-model.zip" % version
+    name = "ryzen-ddr5-moe-deploy-%s-no-model.zip" % version
     os.makedirs(outdir, exist_ok=True)
     dst = os.path.join(outdir, name)
 

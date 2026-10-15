@@ -6,11 +6,11 @@
 用法：
     set GITHUB_TOKEN=github_pat_xxx
     python publish_release.py ^
-        --repo liuda1999/qwen3.6-35b-a3b-cpu-deploy ^
+        --repo liuda1999/ryzen-ddr5-moe-deploy ^
         --tag v0.1.0 ^
         --name 0.1.0 ^
         --body releases\\0.1.0.md ^
-        --asset ..\\..\\llm-cpp-release\\qwen3.6-35b-a3b-cpu-deploy-0.1.0-no-model.zip
+        --asset ..\\..\\llm-cpp-release\\ryzen-ddr5-moe-deploy-0.1.0-no-model.zip
 
 令牌来源优先级：--token > 环境变量 GITHUB_TOKEN > 环境变量 GH_TOKEN。
 **不要把令牌写进本文件或任何会被提交的地方。**
