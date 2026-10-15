@@ -1,7 +1,7 @@
 ================================================================================================
 Qwen3.6-35B 本地大模型 —— 分发包清单
 ================================================================================================
-生成时间：2026-10-16 05:03:22
+生成时间：2026-10-16 05:05:50
 源目录  ：E:\llm-cpp
 文件数  ：70      总大小：33.42 GB（33.42 GB）
 
@@ -29,7 +29,7 @@ Git 仓库说明：
 启动大模型_StartModel.bat	73868	85ee972eebba0009bf8a69da0db8f5b8b264d884fc8fa39f9c7ddb1cdfb2f531
 环境检查_EnvCheck.bat	20630	14d893e750d837e9633703a256e0a35d16ec5d4533bc0e4285d24f1bc97b7dec
 开放局域网端口_OpenLanPort.bat	3439	c14d344b4b16df17a404199c94ca98024ccd9498f0c4bbbb235227286038e617
-README.md	34951	7453ec674ce0844d7b2b2096cffaecf44d1c6cc0c502c91c5140120dafd13819
+README.md	34951	06d808c53ec43c21f4a97f071b8e0bd6332b8f018b2a6f139c0bd06ad474f985
 使用说明_UserGuide.md	27387	8be5b7ad54de1b19b6b980acaf0f5346f0a1b4451bcb0ff36e2941541eef53f6
 参数阶梯手册_TierManual.md	17601	19db1a1fb7b8871abd90c39bc5dc3dad656f639e48888058afddfbfc5d77b30f
 部署说明_DeployNotes.txt	29111	d9a476890b82e523961f7e16ca4945f1301ccec3ba84ecae75d26ba3c0eee1cf
@@ -40,7 +40,7 @@ assets\logo.jpg	97226	f0a02c856fab635ae96011dd79e007775469c64c06a84ce6f9abe06f15
 【2】根目录可选文件（按需带上）
 ------------------------------------------------------------------------------------------------
 *重新编译_Rebuild.bat	2606	682660bfd5de64b1688c83568d49cc0967c3ae5b53d12f7ffabf4685856655c9
-*验收报告_AcceptanceReport.md	38342	4866c5d0cccadbbff61292e149edb46fe39918146c1f5e01385663b3226c39a4
+*验收报告_AcceptanceReport.md	38339	e7b8a758d280a2e73a7d1710c72efde07b2fb079cb571f5c2f00bb48cd5e24da
 *llama.cpp\models\下载模型.md	5908	8a7c4eca1eff34f2cbe7aceb6d4cfe32b4ab4cd1d84c51381ccb83a5901364fe
 
 ------------------------------------------------------------------------------------------------

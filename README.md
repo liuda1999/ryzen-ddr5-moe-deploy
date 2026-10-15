@@ -23,7 +23,7 @@
 [![Hardware](https://img.shields.io/badge/hardware-Ryzen%20%2B%20DDR5-red)](#二为什么核心是-ryzen--ddr5expo)
 [![Backend](https://img.shields.io/badge/backend-llama.cpp%20CUDA%2FCPU-green)](https://github.com/ggml-org/llama.cpp)
 [![Goal](https://img.shields.io/badge/goal-25%20token%2Fs-success)](#四快速开始)
-[![Release](https://img.shields.io/badge/release-0.2.6-orange)](../../releases)
+[![Release](https://img.shields.io/badge/release-0.2.7-orange)](../../releases)
 [![License](https://img.shields.io/badge/license-%E9%9D%9E%E5%95%86%E4%B8%9A%E6%8E%88%E6%9D%83%20%7C%20Non--Commercial-d43f3f)](LICENSE)
 
 > **授权声明 / License**：本项目**源码公开**，可自由阅读、修改并用于**个人与非商业**用途；

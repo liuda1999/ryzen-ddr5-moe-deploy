@@ -31,7 +31,7 @@
 
 用法：
     python _维护脚本\\pull_via_api.py              # 补齐 main 上的缺失对象
-    python _维护脚本\\pull_via_api.py --ref v0.2.6  # 指定 ref（tag / branch）
+    python _维护脚本\\pull_via_api.py --ref v0.2.7  # 指定 ref（tag / branch）
     python _维护脚本\\pull_via_api.py --dry-run     # 只报告缺了什么，不写入
 """
 import hashlib
