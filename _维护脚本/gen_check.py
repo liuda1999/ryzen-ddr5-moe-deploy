@@ -33,13 +33,13 @@ echo   Qwen3.6-35B 本地大模型 · 环境与安全检查
 echo ============================================================
 echo.
 
-echo [1/10] 可执行程序
+echo [1/11] 可执行程序
 call :CHK_FILE "%BIN_DIR%\llama-server.exe"
 call :CHK_FILE "%BIN_DIR%\llama-cli.exe"
 call :CHK_FILE "%BIN_DIR%\llama-bench.exe"
 echo.
 
-echo [2/10] 依赖动态库
+echo [2/11] 依赖动态库
 call :CHK_FILE "%BIN_DIR%\llama.dll"
 call :CHK_FILE "%BIN_DIR%\llama-common.dll"
 call :CHK_FILE "%BIN_DIR%\ggml.dll"
@@ -50,7 +50,7 @@ call :CHK_FILE "%BIN_DIR%\msvcp140.dll"
 call :CHK_FILE "%BIN_DIR%\vcomp140.dll"
 echo.
 
-echo [3/10] CPU 指令集后端（决定能否用满 AVX-512）
+echo [3/11] CPU 指令集后端（决定能否用满 AVX-512）
 call :CHK_FILE "%BIN_DIR%\ggml-cpu-icelake.dll"
 if not exist "%BIN_DIR%\ggml-cpu-icelake.dll" goto :PISA_NONE
 if exist "%BIN_DIR%\ggml-cpu-cascadelake.dll" (
@@ -67,7 +67,7 @@ echo         提示    icelake 变体缺失，需重新编译补齐（见上方 
 :PISA_END
 echo.
 
-echo [4/10] 模型文件
+echo [4/11] 模型文件
 if not exist "%MODEL%" set "MODEL_MISS=1"
 call :CHK_FILE "%MODEL%"
 if exist "%MODEL%" (
@@ -81,7 +81,7 @@ if exist "%MODEL%" (
 )
 echo.
 
-echo [5/10] 视觉投影（多模态，缺失不影响纯文本）
+echo [5/11] 视觉投影（多模态，缺失不影响纯文本）
 if exist "%MMPROJ%" (
   echo         正常    mmproj-BF16.gguf
 ) else (
@@ -90,7 +90,7 @@ if exist "%MMPROJ%" (
 )
 echo.
 
-echo [6/10] 端口 %PORT% 状态
+echo [6/11] 端口 %PORT% 状态
 call :PORT_STATE
 if "%PSTATE%"=="free" goto :P6_FREE
 call :GET_OWNER
@@ -101,7 +101,7 @@ echo         正常    端口空闲，可以启动
 :P6_END
 echo.
 
-echo [7/10] 内存与档位可行性
+echo [7/11] 内存与档位可行性
 for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[int]((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory/1024)"`) do set "FREE_MB=%%a"
 for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[int]((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory/1GB)"`) do set "TOTAL_GB=%%a"
 set /a FREE_GB=%FREE_MB% / 1024
@@ -116,7 +116,7 @@ call :DETECT_SRV
 if defined SRV_PID echo         ^(提示：当前已有服务在运行并占用内存，故上面的可用性判断会偏保守^)
 echo.
 
-echo [8/10] 磁盘与日志目录
+echo [8/11] 磁盘与日志目录
 set "DL=%ROOT:~0,1%"
 for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[int]((Get-PSDrive -Name '%DL%').Free/1GB)"`) do set "DISK_GB=%%a"
 if %DISK_GB% LSS 2 (
@@ -138,7 +138,7 @@ if exist "%SystemRoot%\System32\curl.exe" (
 )
 echo.
 
-echo [9/10] 当前服务状态
+echo [9/11] 当前服务状态
 call :DETECT_SRV
 if not defined SRV_PID goto :P9_DOWN
 call :GET_MEM
@@ -157,7 +157,7 @@ if exist "%PID_FILE%" (
 
 echo.
 
-echo [10/10] 局域网访问
+echo [10/11] 局域网访问
 call :GET_LAN_IP
 if defined LAN_IP goto :P10_HASIP
 echo         [警告]  未检测到局域网 IPv4，其它设备可能无法访问
@@ -189,6 +189,71 @@ goto :P10_END
 :P10_FWOK
 echo         正常    防火墙已放行 TCP %PORT%
 :P10_END
+echo.
+
+REM ============================================================
+REM  [11] GPU 支持自检（只针对 NVIDIA 独立显卡）
+REM
+REM  这一项全部按「警告」处理，绝不设 [失败] —— 因为 GPU 不可用时
+REM  服务仍会以纯 CPU 正常运行，不该因为显卡问题阻止启动。
+REM  核显、AMD / Intel 显卡一律按纯 CPU 处理，不在检查范围内。
+REM ============================================================
+echo [11/11] GPU 支持自检（只针对 NVIDIA 独立显卡）
+powershell -NoProfile -Command "$a=Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue; foreach($v in $a){ if($v.Name -match 'NVIDIA'){ Write-Output $v.Name } }" > "%TEMP%\llm_nv_name.txt" 2>nul
+set "NV_NAME="
+if exist "%TEMP%\llm_nv_name.txt" (
+  for /f "usebackq delims=" %%a in ("%TEMP%\llm_nv_name.txt") do if not defined NV_NAME set "NV_NAME=%%a"
+  del "%TEMP%\llm_nv_name.txt" >nul 2>nul
+)
+if not defined NV_NAME goto :P11_NONV
+echo         正常    检测到 N 卡：%NV_NAME%
+if exist "%SystemRoot%\System32\nvcuda.dll" (
+  echo         正常    CUDA 驱动层 nvcuda.dll 存在
+) else (
+  echo         [警告]  未找到 nvcuda.dll，NVIDIA 驱动可能未正确安装
+  echo                 请到 NVIDIA 官网安装或更新显卡驱动
+  set "WARN=1"
+)
+set "CUDA_LIB_MISS="
+call :CHK_CUDA_LIB cublas64_12.dll
+call :CHK_CUDA_LIB cublasLt64_12.dll
+call :CHK_CUDA_LIB cudart64_12.dll
+if defined CUDA_LIB_MISS goto :P11_GUIDE
+goto :P11_BACKEND
+:P11_GUIDE
+set "WARN=1"
+echo.
+echo         CUDA 运行库是显卡驱动之外的另一套库，只装驱动不会自带。
+echo         三种取法，按推荐顺序：
+echo           1  复用本机已有的
+echo              装过 CUDA、跑过 PyTorch 的机器通常已有这几个 DLL，
+echo              把它们的目录加入 PATH 即可，不必复制文件。
+echo           2  只取需要的 3 个 DLL，约 400~500 MB
+echo              pip download nvidia-cublas-cu12 nvidia-cuda-runtime-cu12 -d .
+echo              解包后把 cublas64_12.dll / cublasLt64_12.dll / cudart64_12.dll
+echo              放进 llama.cpp\build-zen5\bin\
+echo           3  安装官方 CUDA Toolkit 12.8，约 3 GB，可只勾 Runtime 组件
+echo         注意：必须是 12.x 系列。CUDA 13.0 起已不支持 Maxwell / Pascal / Volta 旧卡。
+:P11_BACKEND
+if exist "%BIN_DIR%\ggml-cuda.dll" (
+  echo         正常    CUDA 后端 ggml-cuda.dll 存在
+  echo                 可用 启动大模型.bat start 2 gpu 试跑 GPU 混合卸载
+) else (
+  echo         [警告]  未找到 CUDA 后端 ggml-cuda.dll
+  echo                 它不是显卡驱动，而是 llama.cpp 的 CUDA 后端文件。
+  echo                 获取方式：下载 llama.cpp 官方 Windows CUDA 预编译包，
+  echo                 取出其中的 ggml-cuda.dll 放进
+  echo                 llama.cpp\build-zen5\bin\
+  echo                 要求：后端 API 版本须与本项目一致，否则会被拒绝加载
+  echo                 并自动退回纯 CPU。放好后重跑本检查即可确认。
+  set "WARN=1"
+)
+goto :P11_END
+:P11_NONV
+echo         提示    未检测到 NVIDIA 独立显卡
+echo                 将按纯 CPU 运行 —— 这是正常情况，无需任何处理。
+echo                 核显与 AMD / Intel 显卡同样按纯 CPU 处理。
+:P11_END
 echo.
 echo ============================================================
 if "%FAIL%"=="1" (
@@ -305,6 +370,29 @@ for /f "usebackq tokens=1-5 delims=|" %%a in ("%PID_FILE%") do (
   set "CUR_CTX=%%c"
   set "CUR_T=%%d"
   set "CUR_TIME=%%e"
+)
+exit /b 0
+
+REM ============================================================
+REM  子程序：检查一个 CUDA 运行库是否存在
+REM
+REM  查找顺序与 Windows 的 DLL 搜索顺序一致：先看 exe 同目录 bin\，
+REM  再看 PATH。也就是说把 CUDA 的 bin 目录加进 PATH 同样有效，
+REM  不必把文件复制过来。
+REM  找不到时设置 CUDA_LIB_MISS=1，由调用方汇总成一条警告。
+REM ============================================================
+:CHK_CUDA_LIB
+set "CL_FOUND="
+if exist "%BIN_DIR%\%~1" set "CL_FOUND=%BIN_DIR%\%~1"
+if not defined CL_FOUND (
+  for /f "usebackq delims=" %%a in (`where %~1 2^>nul`) do if not defined CL_FOUND set "CL_FOUND=%%a"
+)
+if defined CL_FOUND (
+  echo         正常    %~1
+  echo                 位置 %CL_FOUND%
+) else (
+  echo         [警告]  缺少 %~1
+  set "CUDA_LIB_MISS=1"
 )
 exit /b 0
 '''

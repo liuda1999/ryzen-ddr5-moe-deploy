@@ -29,6 +29,18 @@ REM     服务默认绑定 0.0.0.0，局域网其它设备可访问 http://<本机IP>:35035，
 REM     但必须携带密钥（首次启动自动生成到根目录 api-key.txt）。
 REM     只想本机可用时，把下面的 HOST 改回 127.0.0.1。
 REM
+REM   GPU 混合卸载（只针对 NVIDIA 独立显卡；核显与非 N 卡一律按纯 CPU）：
+REM     默认关闭。开启后把「每 token 必读」的那部分权重放进显存，
+REM     体积最大的 MoE 专家权重仍留在内存（它们每 token 只用到 8/256）。
+REM     实测：非专家权重仅 2.53 GiB，占总权重 11.9%。
+REM     开启方式（三者其一）：
+REM       a) 把下面的 GPU_MODE 改成 auto     —— 自动探测并按空闲显存选策略
+REM       b) 命令行加一个 gpu 参数          —— 启动大模型.bat start 2 gpu
+REM       c) 把 GPU_MODE 改成 manual，再自己填下面几个值
+REM     GPU 不可用时（没 N 卡 / 没后端 / 没 CUDA 运行库）会自动退回纯 CPU，
+REM     不会阻止启动。缺什么请跑一次 环境检查.bat 的「GPU 支持自检」。
+REM     原理与显存预算详见：参数阶梯手册.md 的「GPU 混合卸载」章节。
+REM
 REM   可在任意位置追加 quiet 参数进入静默模式（计划任务 / 开机自启用）：
 REM     启动大模型.bat start 2 quiet
 REM
@@ -50,6 +62,26 @@ set "PORT=35035"
 REM 局域网访问密钥文件（首次启动自动生成；可手工加多行 key 做轮换）
 set "KEY_FILE=%ROOT%api-key.txt"
 set "READY_TIMEOUT=300"
+
+REM ============================================================
+REM  GPU 混合卸载（只针对 NVIDIA 独立显卡）
+REM  默认 off，无 N 卡的设备行为与之前完全一致。
+REM
+REM   off    = 完全不启用，传 --n-gpu-layers 0（与旧版逐字节一致）
+REM   auto   = 可用就用：自动探测，按空闲显存选策略；不可用则退回纯 CPU
+REM   manual = 完全按下面几个值拼参数
+REM ============================================================
+set "GPU_MODE=off"
+REM manual 模式专用（auto 模式忽略它们）：
+set "GPU_DEVICE="         REM 指定设备，如 CUDA0；留空=自动
+set "GPU_LAYERS="         REM -ngl 值：数字 / auto / all
+set "CPU_MOE="            REM all（全部专家留内存）或层数，如 41
+set "MOE_CACHE_MIB="      REM 专家显存缓存 MiB，0/留空=不用
+set "KV_OFFLOAD="         REM on / off；off = KV 留内存（省显存，适合小显存卡）
+REM auto 模式的两个阈值（MiB）：
+set "GPU_MIN_FREE_MIB=2560"   REM 空闲显存低于此值就不启用（2.5 GiB）
+set "GPU_KV_MIB=6144"         REM 空闲显存低于此值时把 KV 也放到内存
+REM ============================================================
 
 REM quiet = 静默模式（供计划任务 / 开机自启调用：不等待按键、不打开浏览器）
 set "QUIET=0"
@@ -79,6 +111,23 @@ if /i "%~1"=="nothink" set "THINK_FIXED=1"
 if /i "%~2"=="nothink" set "THINK_FIXED=1"
 if /i "%~3"=="nothink" set "THINK_FIXED=1"
 if /i "%~4"=="nothink" set "THINK_FIXED=1"
+
+REM GPU 开关：命令行加 gpu 等价于 GPU_MODE=auto，加 nogpu 等价于 off。
+REM 用命令行指定时，不再因为文件里是 off 而忽略（便于临时试 GPU，不改文件）。
+if /i "%~1"=="gpu"   goto :GPUCLI_ON
+if /i "%~2"=="gpu"   goto :GPUCLI_ON
+if /i "%~3"=="gpu"   goto :GPUCLI_ON
+if /i "%~4"=="gpu"   goto :GPUCLI_ON
+if /i "%~5"=="gpu"   goto :GPUCLI_ON
+if /i "%~1"=="nogpu" set "GPU_MODE=off"
+if /i "%~2"=="nogpu" set "GPU_MODE=off"
+if /i "%~3"=="nogpu" set "GPU_MODE=off"
+if /i "%~4"=="nogpu" set "GPU_MODE=off"
+if /i "%~5"=="nogpu" set "GPU_MODE=off"
+goto :GPUCLI_END
+:GPUCLI_ON
+set "GPU_MODE=auto"
+:GPUCLI_END
 
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>nul
 
@@ -148,6 +197,8 @@ echo   内存占用   %SRV_MEM% GB
 echo   配置档位   %CUR_TIER_NAME% （上下文 %CUR_CTX% / 线程 %CUR_T%）
 call :SHOW_CUR_THINK
 echo   启动时间   %CUR_TIME%
+set "GPU_LOG_STAMP=%CUR_TIME%"
+call :SHOW_GPU_ACTUAL
 call :SHOW_ADDR
 echo ============================================================
 echo.
@@ -210,6 +261,8 @@ echo   内存占用   %SRV_MEM% GB
 echo   配置档位   %CUR_TIER_NAME% （上下文 %CUR_CTX% / 线程 %CUR_T%）
 call :SHOW_CUR_THINK
 echo   启动时间   %CUR_TIME%
+set "GPU_LOG_STAMP=%CUR_TIME%"
+call :SHOW_GPU_ACTUAL
 call :SHOW_ADDR
 echo.
 echo ------------------------------------------------------------
@@ -328,11 +381,16 @@ if "%MEM_WARN%"=="1" (
   )
 )
 
+REM GPU 探测与参数组装：不可用时会自动退回纯 CPU，不阻断启动
+call :GPU_PROBE
+call :BUILD_GPU_ARGS
+
 echo.
 echo ============================================================
 echo   正在启动：%TIER_NAME%
 echo   上下文 %CTX%   线程 %THREADS%   端口 %PORT%
 call :SHOW_THINK
+call :SHOW_GPU_PLAN
 echo ============================================================
 echo.
 
@@ -365,7 +423,7 @@ REM    2. cmd /c 后面的命令以引号开头时，必须在最外面再包一对引号
 REM       （就是下面 $q + $q 那里），否则 cmd 会把引号剥掉、命令报错；
 REM    3. 保留 < nul：避免服务持有本窗口的输入句柄导致脚本卡住。
 REM ------------------------------------------------------------
-powershell -NoProfile -Command "$q=[char]34; $c='cmd /c ' + $q + $q + '%SERVER_EXE%' + $q + ' --model ' + $q + '%MODEL%' + $q + ' --mmproj ' + $q + '%MMPROJ%' + $q + ' --host %HOST% --port %PORT% --api-key %API_KEY% --reasoning %THINK% --ctx-size %CTX% --threads %THREADS% --threads-batch %THREADS% --n-gpu-layers 0 < nul > ' + $q + '%LOG_FILE%' + $q + ' 2>&1' + $q; (New-Object -ComObject WScript.Shell).Run($c, 0, $false)"
+powershell -NoProfile -Command "$q=[char]34; $c='cmd /c ' + $q + $q + '%SERVER_EXE%' + $q + ' --model ' + $q + '%MODEL%' + $q + ' --mmproj ' + $q + '%MMPROJ%' + $q + ' --host %HOST% --port %PORT% --api-key %API_KEY% --reasoning %THINK% --ctx-size %CTX% --threads %THREADS% --threads-batch %THREADS% %GPU_ARGS% < nul > ' + $q + '%LOG_FILE%' + $q + ' 2>&1' + $q; (New-Object -ComObject WScript.Shell).Run($c, 0, $false)"
 
 echo [信息] 正在加载 21.3 GB 模型到内存，请稍候（通常 30~90 秒）...
 echo [信息] 日志：%LOG_FILE%
@@ -443,6 +501,8 @@ echo   启动成功，服务已就绪
 echo ============================================================
 echo   档位      %TIER_NAME%（上下文 %CTX% / 线程 %THREADS%）
 call :SHOW_THINK
+set "GPU_LOG_STAMP=%STAMP%"
+call :SHOW_GPU_ACTUAL
 echo   进程 PID  %SRV_PID%
 echo   日志      %LOG_FILE%
 echo.
@@ -758,6 +818,137 @@ if exist "%IPTMP%" (
   for /f "usebackq delims=" %%a in ("%IPTMP%") do if not defined LAN_IP set "LAN_IP=%%a"
   del "%IPTMP%" >nul 2>nul
 )
+exit /b 0
+
+REM ============================================================
+REM  子程序：探测可用 GPU
+REM
+REM  判定依据是 llama-server --list-devices 的实际输出 —— 它来自后端本身，
+REM  报的是「该后端真正能用的显存」，比 WMI / 注册表可靠得多
+REM  （WMI 的 AdapterRAM 在 >4 GB 时会溢出，注册表值不反映当前占用）。
+REM
+REM  包里只编 CUDA 后端，所以「列表里有设备」等价于「有可用的 N 卡」；
+REM  核显与非 N 卡根本不会出现在列表里，无需额外排除逻辑。
+REM
+REM  以下任一情况都会让列表为空或解析不出内容 → GPU_AVAILABLE=0
+REM  → 自动退回纯 CPU，不阻断启动：
+REM    没有 ggml-cuda.dll / 没有 N 卡 / 驱动过老 /
+REM    缺 CUDA 运行库(cublas) / 后端 API 版本不匹配
+REM ============================================================
+:GPU_PROBE
+set "GPU_AVAILABLE=0"
+set "GPU_NAME="
+set "GPU_TOTAL_MIB=0"
+set "GPU_FREE_MIB=0"
+set "GPU_PROBE_NOTE="
+if not exist "%BIN_DIR%\ggml-cuda.dll" (
+  set "GPU_PROBE_NOTE=未找到 CUDA 后端 ggml-cuda.dll（详见环境检查的 GPU 支持自检）"
+  exit /b 0
+)
+"%SERVER_EXE%" --list-devices > "%TEMP%\llm_gpu_dev.txt" 2>nul
+if not exist "%TEMP%\llm_gpu_dev.txt" (
+  set "GPU_PROBE_NOTE=后端探测没有输出"
+  exit /b 0
+)
+REM 解析形如：  CUDA0: NVIDIA GeForce GTX 1660 (6144 MiB, 5312 MiB free)
+powershell -NoProfile -Command "$t=Get-Content -LiteralPath '%TEMP%\llm_gpu_dev.txt' -ErrorAction SilentlyContinue; foreach($l in $t){ if($l -match '^\s*[^:]+:\s*(.+?)\s*\((\d+)\s*MiB,\s*(\d+)\s*MiB free\)'){ Write-Output ($matches[1] + '|' + $matches[2] + '|' + $matches[3]); break } }" > "%TEMP%\llm_gpu_one.txt" 2>nul
+del "%TEMP%\llm_gpu_dev.txt" >nul 2>nul
+if not exist "%TEMP%\llm_gpu_one.txt" (
+  set "GPU_PROBE_NOTE=后端未列出任何设备（无 N 卡／驱动过老／缺 CUDA 运行库）"
+  exit /b 0
+)
+for /f "usebackq tokens=1,2,3 delims=|" %%a in ("%TEMP%\llm_gpu_one.txt") do (
+  set "GPU_NAME=%%a"
+  set "GPU_TOTAL_MIB=%%b"
+  set "GPU_FREE_MIB=%%c"
+  set "GPU_AVAILABLE=1"
+)
+del "%TEMP%\llm_gpu_one.txt" >nul 2>nul
+exit /b 0
+
+REM ============================================================
+REM  子程序：按模式组装 GPU 参数
+REM
+REM  auto 模式的主推组合是「--fit on --cpu-moe」：
+REM    --fit on       让 llama.cpp 自己按空闲显存决定卸载多少层
+REM                   （这是它的默认行为，只是旧版脚本用 --n-gpu-layers 0 压掉了）
+REM    --cpu-moe      把体积最大的 MoE 专家权重留在内存（占 88.1%，每 token 只用 8/256）
+REM    于是上显存的只有「每 token 必读」的注意力/稠密/输出等，实测仅 2.53 GiB
+REM  显存偏紧时再加 -nkvo，把 KV cache 也放回内存。
+REM ============================================================
+:BUILD_GPU_ARGS
+set "GPU_ARGS=--n-gpu-layers 0"
+set "GPU_STRATEGY=纯 CPU"
+if /i "%GPU_MODE%"=="off" (
+  set "GPU_STRATEGY=纯 CPU（GPU_MODE=off，默认）"
+  exit /b 0
+)
+if "%GPU_AVAILABLE%"=="1" goto :BGA_HAVE
+set "GPU_STRATEGY=纯 CPU（已请求 GPU 但不可用，已自动退回）"
+exit /b 0
+
+:BGA_HAVE
+if /i "%GPU_MODE%"=="manual" goto :BGA_MANUAL
+REM ---------- auto ----------
+if %GPU_FREE_MIB% LSS %GPU_MIN_FREE_MIB% goto :BGA_SMALL
+set "GPU_ARGS=--fit on --fit-target 1024 --cpu-moe"
+set "GPU_STRATEGY=非专家权重上显存，专家权重留内存"
+if %GPU_FREE_MIB% LSS %GPU_KV_MIB% goto :BGA_NKVO
+exit /b 0
+:BGA_NKVO
+set "GPU_ARGS=%GPU_ARGS% -nkvo"
+set "GPU_STRATEGY=非专家权重上显存，专家与 KV 都留内存（显存偏紧）"
+exit /b 0
+:BGA_SMALL
+set "GPU_STRATEGY=纯 CPU（空闲显存 %GPU_FREE_MIB% MiB，低于门槛 %GPU_MIN_FREE_MIB% MiB）"
+exit /b 0
+
+:BGA_MANUAL
+REM ---------- manual ----------
+set "GPU_ARGS="
+if defined GPU_DEVICE set "GPU_ARGS=--device %GPU_DEVICE%"
+if defined GPU_LAYERS set "GPU_ARGS=%GPU_ARGS% --n-gpu-layers %GPU_LAYERS%"
+if not defined GPU_LAYERS set "GPU_ARGS=%GPU_ARGS% --n-gpu-layers 0"
+if /i "%CPU_MOE%"=="all" set "GPU_ARGS=%GPU_ARGS% --cpu-moe"
+if defined CPU_MOE if /i not "%CPU_MOE%"=="all" set "GPU_ARGS=%GPU_ARGS% --n-cpu-moe %CPU_MOE%"
+if defined MOE_CACHE_MIB set "GPU_ARGS=%GPU_ARGS% --moe-cache-mib %MOE_CACHE_MIB%"
+if /i "%KV_OFFLOAD%"=="off" set "GPU_ARGS=%GPU_ARGS% -nkvo"
+if /i "%KV_OFFLOAD%"=="on" set "GPU_ARGS=%GPU_ARGS% -kvo"
+set "GPU_STRATEGY=手动指定"
+exit /b 0
+
+REM ============================================================
+REM  子程序：启动前显示 GPU 计划（GPU_MODE=off 时什么都不显示）
+REM ============================================================
+:SHOW_GPU_PLAN
+if /i "%GPU_MODE%"=="off" exit /b 0
+if "%GPU_AVAILABLE%"=="1" (
+  echo   GPU 策略   %GPU_STRATEGY%
+  echo   GPU 设备   %GPU_NAME%  ^(%GPU_TOTAL_MIB% MiB 总 / %GPU_FREE_MIB% MiB 空闲^)
+) else (
+  echo   GPU 策略   %GPU_STRATEGY%
+  echo              %GPU_PROBE_NOTE%
+)
+exit /b 0
+
+REM ============================================================
+REM  子程序：从服务日志里读出「实际生效」的层分配
+REM  需要外部先设置 GPU_LOG_STAMP（= 日志文件名里的时间戳）
+REM  llama.cpp 会打印：
+REM    load_tensors: offloaded 41/41 layers to GPU
+REM ============================================================
+:SHOW_GPU_ACTUAL
+if "%GPU_LOG_STAMP%"=="" exit /b 0
+set "GLOG=%LOG_DIR%\server-%GPU_LOG_STAMP%.log"
+if not exist "%GLOG%" exit /b 0
+set "GCLAUSE="
+for /f "usebackq delims=" %%a in (`findstr /c:"load_tensors: offloaded" "%GLOG%"`) do set "GCLAUSE=%%a"
+if not defined GCLAUSE (
+  echo   GPU 层分配 未启用（纯 CPU 运行）
+  exit /b 0
+)
+set "GCLAUSE=%GCLAUSE:*load_tensors: =%"
+echo   GPU 层分配 %GCLAUSE%
 exit /b 0
 
 REM ============================================================
