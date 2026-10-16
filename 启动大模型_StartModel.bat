@@ -24,7 +24,7 @@ REM   双击运行：
 
 REM     服务未运行  ->  先做环境与硬件检查，再检查模型：
 
-REM                       没有模型  ->  引导下载（1=IQ3_S / 2=Q4_K_XL，断点续传）
+REM                       没有模型  ->  引导下载（1=IQ3_S / 2=Q4_K_M，断点续传）
 
 REM                       已有模型  ->  跳过，直接按档位启动
 
@@ -108,13 +108,13 @@ REM   模型自动下载（只在「没有模型」时触发）
 
 REM     顺序：环境与硬件检查 -> 检查模型 -> 没有才下载 -> 档位选择
 
-REM       已有模型（Q4_K_XL / IQ3_S 任一存在）-> 跳过，直接选档位启动
+REM       已有模型（Q4_K_M / IQ3_S 任一存在）-> 跳过，直接选档位启动
 
 REM       没有模型 -> 菜单选量化后自动下载：
 
 REM         1  IQ3_S    约 12.74 GB   32 GB 内存设备首选，速度略快
 
-REM         2  Q4_K_XL  约 20.82 GB   默认推荐，量化质量最好
+REM         2  Q4_K_M   约 20.61 GB   推荐（32G 内存，最多 64K）
 
 REM     下载用系统自带 curl：-C - 断点续传，中断后重跑会接着下；
 
@@ -144,7 +144,7 @@ set "ROOT=%~dp0"
 
 set "BIN_DIR=%ROOT%llama.cpp\build-zen5\bin"
 
-set "MODEL=%ROOT%llama.cpp\models\Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+set "MODEL=%ROOT%llama.cpp\models\Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
 
 set "MMPROJ=%ROOT%llama.cpp\models\mmproj-BF16.gguf"
 
@@ -169,6 +169,11 @@ REM 局域网访问密钥文件（首次启动自动生成；可手工加多行 key 做轮换）
 set "KEY_FILE=%ROOT%api-key.txt"
 
 set "READY_TIMEOUT=300"
+REM 空闲休眠：连续无推理任务这么多秒后，llama-server 会释放模型与 KV（把内存/显存还回去），
+REM 下次请求再自动重新加载（= 回收资源 + 重新预热）。默认 7200 秒 = 2 小时。
+REM llama.cpp 自身默认是 -1（从不休眠）；这里显式设 2 小时：够一整天随手用，
+REM 又不会常年白占 20 GB 内存。想更早回收就调小，想更久不回收就调大。
+set "IDLE_SLEEP_SEC=7200"
 
 
 
@@ -226,17 +231,23 @@ set "GPU_MIN_FREE_MIB=1536"   REM 空闲显存低于此值就不启用（再低收益太小）
 
 set "GPU_LAYER_MIB=40"        REM 每层「非专家权重」≈40 MiB（实测 39.6：41 层共 1625 MiB）
 
-set "GPU_FIXED_MIB=480"       REM 计算缓冲 + CUDA 上下文（不含 KV；实测 ~480）
+set "GPU_FIXED_MIB=440"       REM 计算缓冲 + CUDA 上下文（不含 KV；40 层满载实测 约413，取 440）
 
-set "GPU_SAFETY_MIB=128"      REM 安全垫：留出余量，驱动就不必回收 llama 的页（调大更保险、更慢）
+set "GPU_SAFETY_MIB=96"       REM 安全垫：留出余量，驱动就不必回收 llama 的页（调大更保险、更慢）
 
-set "GPU_MMPROJ_MIB=320"      REM 载入 mmproj 视觉塔时它占的显存（实测 +320）
+set "GPU_MMPROJ_MIB=930"      REM 载入 mmproj 视觉塔时它占的专用显存（2026-10-16 实测 +926 MiB：21 层时 1978→2904 MiB）
 
-set "GPU_NLAYER=41"           REM 模型层数，用来给算出的层数封顶
+set "GPU_MMPROJ_MIN_GAIN=8"   REM auto 模式下：省掉视觉塔能让可用层数多出这么多层以上，就自动不载它
 
-REM 视觉塔开关：off = 不载 mmproj（省约 320 MiB 显存 + 约 800 MiB 共享内存，
+set "GPU_NLAYER=40"           REM 模型层数（GGUF block_count=40），用来给算出的层数封顶
 
-REM 代价是不能处理图片）。纯文字用途想给显存留最大余量就设 off。
+REM 视觉塔开关：auto = 按显存自动取舍（省下它能多上 GPU_MMPROJ_MIN_GAIN 层以上
+
+REM 就不载，文字优先速度）；on = 强制载入（要处理图片）；off = 强制不载。
+
+REM 它实打实吃约 930 MiB 专用显存 —— 3 GB 卡上那是十几层权重，滑不滑得来
+
+REM 差别很大（实测 40 层 15.6 t/s vs 21 层 11.1 t/s，深上下文解码）。
 
 set "MMPROJ_SW=auto"
 
@@ -596,7 +607,7 @@ exit /b 0
 
 :ENV_CHECK_ONLY
 
-REM 先解析实际存在的模型文件（Q4_K_XL 优先，IQ3_S 兜底），避免误报缺失
+REM 先解析实际存在的模型文件（Q4_K_M 优先，IQ3_S 兜底），避免误报缺失
 
 call :MODEL_DETECT
 
@@ -717,6 +728,11 @@ REM  流程：环境与硬件检查 -> 模型检查（没有就引导下载）-> 档位菜单
 REM ============================================================
 
 :MENU_STOPPED
+REM 轮次上限：内存不足会把人弹回这个菜单，如果输入来源枯竭（重定向/管道到文件尾），
+REM set /p 会一直取默认值 → 反复回到同一个档位 → 死循环。和下载菜单的 MG_ROUND
+REM 一样封顶，保证任何输入情况下脚本都会结束而不是刷屏。
+set /a TIER_ROUND+=1
+if %TIER_ROUND% GEQ 12 goto :MENU_GIVEUP
 
 cls
 
@@ -752,7 +768,7 @@ if not defined ENV_DONE (
 
 )
 
-REM 第二步：检查模型；没有就进下载菜单（1=IQ3_S / 2=Q4_K_XL），下完自动回到这里
+REM 第二步：检查模型；没有就进下载菜单（1=IQ3_S / 2=Q4_K_M），下完自动回到这里
 
 call :MODEL_GATE
 
@@ -765,60 +781,35 @@ call :TIER_HINT
 echo ============================================================
 
 echo   Qwen3.6-35B 本地大模型 / Local LLM
-
 echo   服务未运行 / service stopped
-
 echo   模型/MODEL    %MODEL_LABEL%
-
 echo   后端/BACKEND  纯 CPU / CPU-only（AVX-512+VNNI+VBMI）
-
 echo                 有 N 卡时自动启用显存混合卸载 / GPU offload auto with NVIDIA
-
 if defined REC_CTX_HINT echo   显卡/GPU      检测到 %VRH% MiB 显存 / detected
-
 if defined REC_CTX_HINT echo                 建议档位 %REC_TIER% %REC_TIER_NAME%（%REC_CTX_HINT%） / recommended
-
 echo.
-
 echo ------------------------------------------------------------
-
 echo   请选择配置档位 / Choose a tier
-
 echo ------------------------------------------------------------
-
-echo   档位/TIER               上下文/CTX  内存/RAM      显存/VRAM
-
-echo   1  实用档/Practical            16K  ~24 GB        -
-
-echo   2  长文档档/Long doc           24K  ~24 GB        -
-
-echo   3  超长档/Extended             32K  ~25 GB        4G 上限
-
-echo   4  长上下文档/Big ctx          64K  ~25 GB        8G
-
-echo   5  超大档/Very big             96K  ~26 GB        12G
-
-echo   6  极限档/Maximum             128K  ~26 GB        16G
-
+echo   档位/TIER               上下文/CTX  IQ3_S 内存    Q4 内存
+echo   1  实用档/Practical            16K  16G           24G
+echo   2  长文档档/Long doc           24K  16G           24G
+echo   3  超长档/Extended             32K  16G           24G
+echo   4  长上下文档/Big ctx          64K  16G           24G
+echo   5  超大档/Very big             96K  17G           25G
+echo   6  极限档/Maximum             128K  17G           25G
 echo   0  退出 / Exit
-
 echo ------------------------------------------------------------
-
 echo   说明 / NOTE
-
-echo   速度/SPEED   短对话约 24 t/s，填满后随长度缓降 / short chat ~24 t/s, drops as ctx fills
-
-echo                32K 填满约 20、64K 填满约 12 / ~20 at 32K, ~12 at 64K
-
-echo   线程/THREAD  全部档位均为 24 线程 / 24 threads for every tier
-
-echo   选档/TIER    按显存选 8G→4, 12G→5, 16G→6 / pick by VRAM
-
-echo   KV 量化/KVQ  64K 及以上在 3G 卡上自动加 KV 量化 / auto KV quantization for 64K+ on a 3G card
-
-echo   纯 CPU/CPU   无 N 卡时按纯 CPU 运行，约 15 t/s / CPU-only ~15 t/s with no NVIDIA card
-
-echo   手册/MANUAL  详见/see 参数阶梯手册_TierManual.md
+echo   配置/SETUP     16G 内存 + 4G 以上显存 → IQ3_S，最多 64K 上下文
+echo                  32G 内存（16G*2 双通道）→ Q4_K_M，最多 64K 上下文
+echo                  32G 内存 + 8G 以上显存 → Q4_K_M 及以上，64K 以上上下文
+echo   速度/SPEED     短对话约 24 t/s，填满后随长度缓降 / short chat ~24 t/s, drops as ctx fills
+echo                  32K 填满约 20、64K 填满约 12 / ~20 at 32K, ~12 at 64K
+echo   线程/THREAD    全部档位均为 24 线程 / 24 threads for every tier
+echo   空闲/IDLE      无任务 2 小时后释放内存，下次对话自动重载 / frees RAM after 2h idle, reloads on next request
+echo   手册/MANUAL    详见/see 参数阶梯手册_TierManual.md
+echo.
 
 echo.
 
@@ -1005,6 +996,8 @@ REM GPU 探测与参数组装：不可用时会自动退回纯 CPU，不阻断启动
 call :GPU_PROBE
 
 call :BUILD_GPU_ARGS
+REM 启动前最后一次交互询问：是否轮换访问密钥（默认沿用）
+call :ASK_KEY
 
 
 
@@ -1096,11 +1089,15 @@ if exist "%MMPROJ%" set "MMPROJ_PS=' --mmproj ' + $q + '%MMPROJ%' + $q +"
 
 if /i "%MMPROJ_SW%"=="off" set "MMPROJ_PS="
 
-powershell -NoProfile -Command "$q=[char]34; $c='cmd /c ' + $q + $q + '%SERVER_EXE%' + $q + ' --model ' + $q + '%MODEL%' + $q + %MMPROJ_PS% ' --host %HOST% --port %PORT% --api-key %API_KEY% --reasoning %THINK% --ctx-size %CTX% --threads %THREADS% --threads-batch %THREADS% %GPU_ARGS% < nul > ' + $q + '%LOG_FILE%' + $q + ' 2>&1' + $q; (New-Object -ComObject WScript.Shell).Run($c, 0, $false)"
+REM auto 模式判定「视觉塔不划算」时也要真的不传 --mmproj（见 :BUILD_GPU_ARGS）
+
+if "%BGA_MMPROJ_AUTOOFF%"=="1" set "MMPROJ_PS="
+
+powershell -NoProfile -Command "$q=[char]34; $c='cmd /c ' + $q + $q + '%SERVER_EXE%' + $q + ' --model ' + $q + '%MODEL%' + $q + %MMPROJ_PS% ' --host %HOST% --port %PORT% --api-key %API_KEY% --reasoning %THINK% --ctx-size %CTX% --threads %THREADS% --threads-batch %THREADS% --sleep-idle-seconds %IDLE_SLEEP_SEC% %GPU_ARGS% < nul > ' + $q + '%LOG_FILE%' + $q + ' 2>&1' + $q; (New-Object -ComObject WScript.Shell).Run($c, 0, $false)"
 
 
 
-echo [信息/INFO] 正在加载/Loading 20.8 GB 模型到内存，请稍候 / usually 30~90 s ...
+echo [信息/INFO] 正在加载/Loading %MODEL_GB% GB 模型到内存，请稍候 / usually 30~90 s ...
 
 echo [信息/INFO] 日志/LOG：%LOG_FILE%
 
@@ -1274,6 +1271,8 @@ if "%QUIET%"=="1" exit /b 0
 
 set "YN="
 
+REM 启动成功即预热：不要等用户第一次提问才开始读权重
+call :WARMUP
 set /p "YN=  是否打开网页控制台？/ Open web console? (Y/n) : "
 
 if /i "%YN%"=="n" goto :START_DONE
@@ -1299,6 +1298,37 @@ REM ============================================================
 REM  子程序：显示思考模式（当前启动参数）
 
 REM ============================================================
+
+:WARMUP
+REM 预热：启动后立刻发一个真实的小请求，让 llama.cpp 把权重读进内存/显存、
+REM       提示词特意选成「必然要生成几十个 token」的那种：MoE 每 token 激活 8/256 个专家，
+REM       生成得越多，被真正读进来的专家就越全（约 64 token 能覆盖绝大多数），
+REM       冷缓存（刚开机）时收益最明显。
+REM       建好 CUDA 图与 KV 结构，用户第一次对话就不用再等首字延迟。
+REM 任何一步失败都只提示、不阻断 —— 最坏情况只是回到「首次对话稍慢」。
+set "WARM_RC=0"
+set "WARM_KEY="
+REM 密钥文件可能有多把（展示时用逗号拼过），请求头只带第一把
+for /f "tokens=1 delims=," %%a in ("%API_KEY%") do set "WARM_KEY=%%a"
+if not defined WARM_KEY exit /b 0
+if not exist "%SystemRoot%\System32\curl.exe" goto :WARM_NOCURL
+set "WARM_JSON=%TEMP%\llm-warmup.json"
+> "%WARM_JSON%" echo {"messages":[{"role":"user","content":"Count from 1 to 60, numbers only, separated by spaces."}],"max_tokens":96,"temperature":0,"stream":false}
+if not exist "%WARM_JSON%" exit /b 0
+echo   预热/WARMUP   正在预热模型，预热后首次对话免等待 / warming up for a fast first reply ...
+"%SystemRoot%\System32\curl.exe" -s -f -o nul -m 600 -H "Content-Type: application/json" -H "Authorization: Bearer %WARM_KEY%" --data-binary "@%WARM_JSON%" http://%CHECK_HOST%:%PORT%/v1/chat/completions
+set "WARM_RC=%errorlevel%"
+del "%WARM_JSON%" >nul 2>nul
+if not "%WARM_RC%"=="0" goto :WARM_FAIL
+echo   预热/WARMUP   完成/done，首次对话已就绪 / first reply is ready now
+exit /b 0
+:WARM_NOCURL
+echo   [提示/HINT] 未找到 curl，跳过预热 / curl not found, warmup skipped（首次对话会稍慢 / first reply may be slower）
+exit /b 0
+:WARM_FAIL
+echo   [提示/HINT] 预热未成功/warmup failed（不影响使用/harmless），首次对话会稍慢 / first reply may be slower
+exit /b 0
+
 
 :SHOW_THINK
 
@@ -1404,6 +1434,15 @@ REM  内存不足：给出三条出路 + 各档位可行性，然后回档位菜单重选
 
 REM ============================================================
 
+:MENU_GIVEUP
+REM 正常交互几乎不会走到这里（要连续 12 次回到档位菜单）；走到就明确退出，
+REM 而不是继续刷屏。
+echo.
+echo   [提示/HINT] 反复回到档位菜单多次（输入可能已耗尽）/ too many returns to the tier menu;
+echo         脚本退出，避免空转 / exiting to avoid spinning。可重新运行本脚本再试 / run again to retry.
+echo.
+exit /b 1
+
 :MEM_NOT_ENOUGH
 
 echo.
@@ -1414,9 +1453,10 @@ echo   内存不足，已阻止启动 / Not enough RAM, startup blocked
 
 echo ============================================================
 
-echo   本档位/tier %TIER_NAME%（%CTX% 上下文/ctx）需要约/needs ~%NEED_GB% GB，
+echo   本档位/tier %TIER_NAME%（%CTX% 上下文/ctx）+ 模型 "%MODEL_LABEL%"
+echo   需要约/needs ~%NEED_GB% GB 总内存/total RAM；本机总内存/total %TOTAL_GB% GB，可用/free %FREE_GB% GB。
 
-echo   当前可用/available %FREE_GB% GB.
+REM 上一条已给出 total 与 free，这里不重复
 
 echo.
 
@@ -1430,9 +1470,11 @@ echo     1  关闭其它占内存的程序后重试 / close other memory-hungry apps and retr
 
 echo     2  在下面标注为「可用」的档位里挑一个更小的 / pick a smaller tier marked 可用/OK below
 
-echo     3  换更小的模型 / use a smaller model：把 GGUF 换成更小量化的版本（目录里放 / put a lower-quant GGUF in the folder
+echo     3  换更小的模型 / use a smaller model：IQ3_S 只有 12.7 GB
+echo        把 Qwen3.6-35B-A3B-UD-IQ3_S.gguf 放进 models 目录即可，脚本会自动改用它 /
+echo        drop IQ3_S into the models folder and the script picks it up automatically
 
-echo        IQ3_S 时脚本会自动改用它/auto-detected^），再改顶部 MODEL 变量重启 / then edit MODEL and restart
+REM 已并入上一条
 
 echo.
 
@@ -1675,46 +1717,24 @@ REM  子程序：按当前可用内存列出各档位可行性
 REM ============================================================
 
 :SHOW_TIER_FIT
-
-echo   当前可用内存/free RAM %FREE_GB% GB（共/total %TOTAL_GB% GB）下的档位情况 / tiers that fit：
-
-call :FIT_LINE 1 实用档     24
-
-call :FIT_LINE 2 长文档档   24
-
-call :FIT_LINE 3 超长档     25
-
-call :FIT_LINE 4 长上下文档 25
-
-call :FIT_LINE 5 超大档     26
-
-call :FIT_LINE 6 极限档     26
-
+echo   当前机器/total %TOTAL_GB% GB，可用/free %FREE_GB% GB，本模型 "%MODEL_LABEL%" 下的档位情况 / tiers that fit：
+call :FIT_LINE 1 实用档     16384
+call :FIT_LINE 2 长文档档   24576
+call :FIT_LINE 3 超长档     32768
+call :FIT_LINE 4 长上下文档 65536
+call :FIT_LINE 5 超大档     98304
+call :FIT_LINE 6 极限档     131072
 exit /b 0
-
 
 
 :FIT_LINE
-
-set /a FIT_NEED=%~3 * 1024
-
-if %FREE_MB% LSS %FIT_NEED% echo        不可用   档位 %~1  %~2   需 %~3 GB
-
-if %FREE_MB% GEQ %FIT_NEED% echo        可用     档位 %~1  %~2   需 %~3 GB
-
+REM 入参：%~1 = 档位号，%~2 = 档位名，%~3 = 上下文大小
+call :NEED_FOR_CTX %~3
+set /a FIT_NEED=%NEED_GB% * 1024
+if %FREE_MB% LSS %FIT_NEED% echo        内存不足   档位 %~1  %~2   需 %NEED_GB% GB
+if %FREE_MB% GEQ %FIT_NEED% echo        可用       档位 %~1  %~2   需 %NEED_GB% GB
 exit /b 0
 
-
-
-REM ============================================================
-
-REM  子程序：按显卡显存推荐上下文档位（nvidia-smi 快速读，不加载 llama.cpp）
-
-REM  规则：>=16G->档6(128K)  >=12G->档5(96K)  >=8G->档4(64K)  >=3.5G->档3(32K)  否则档1(16K)
-
-REM  读不到（非 N 卡 / 无 nvidia-smi）时不设 REC_TIER，菜单用普通默认档。
-
-REM ============================================================
 
 :TIER_HINT
 
@@ -1766,7 +1786,7 @@ REM ============================================================
 
 REM  子程序：解析实际要用的模型文件
 
-REM  目录下两个官方量化谁存在就用谁（Q4_K_XL 优先），
+REM  只用官方 Q4_K_M 与 IQ3_S 两种量化（Q4_K_XL 已停用，不再探测），谁存在就用谁，
 
 REM  同时设置档位菜单里显示的模型名。都不在时保持默认 Q4 路径，
 
@@ -1781,94 +1801,60 @@ REM  下载失败留下的残留文件把「有模型」的检测骗过去。
 REM ============================================================
 
 :MODEL_DETECT
-
+REM 两种量化都能直接用：Q4_K_M 约 20.6 GB（32G 内存，最多 64K），
+REM IQ3_S 约 12.7 GB（16G 内存 + 4G 显存，最多 64K）。
 set "MODEL_DIR=%ROOT%llama.cpp\models"
-
 set "MODEL_VALID="
-
-call :MD_TRY "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf" "Qwen3.6-35B-A3B-UD-Q4_K_XL（MoE，无 MTP，20.8 GB）"
-
+call :MD_TRY "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
 if defined MODEL_VALID exit /b 0
-
-call :MD_TRY "Qwen3.6-35B-A3B-UD-IQ3_S.gguf" "Qwen3.6-35B-A3B-UD-IQ3_S（MoE，无 MTP，12.7 GB）"
-
+call :MD_TRY "Qwen3.6-35B-A3B-UD-IQ3_S.gguf"
 if defined MODEL_VALID exit /b 0
-
-set "MODEL=%MODEL_DIR%\Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
-
-set "MODEL_LABEL=Qwen3.6-35B-A3B-UD-Q4_K_XL（尚未下载）"
-
+REM 一个都没有：把 MODEL 指到默认要下载的那份，后面由 MODEL_GATE 引导下载
+set "MODEL=%MODEL_DIR%\Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+set "MODEL_LABEL=Qwen3.6-35B-A3B-UD-Q4_K_M（尚未下载 / not downloaded yet）"
 exit /b 0
-
 
 
 :MD_TRY
-
+REM 入参：%~1 = 文件名，%~2 = 显示标签
+REM 出参：MODEL_VALID / MODEL / MODEL_LABEL / MODEL_MB（MiB 整数）
 set "MD_FILE=%MODEL_DIR%\%~1"
-
 if not exist "%MD_FILE%" exit /b 0
-
-set "MD_OK="
-
-for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "if((Get-Item -LiteralPath '%MD_FILE%').Length -ge 1073741824){'OK'}"`) do set "MD_OK=%%a
-
-if not "%MD_OK%"=="OK" (
-
-  if not defined MD_WARNED echo         [警告]  %~1 不足 1 GB，判定为损坏或不完整，将重新下载覆盖
-
-  if not defined MD_WARNED set "MD_WARNED=1"
-
-  exit /b 0
-
-)
-
+set "MD_RAW="
+REM 一次 PowerShell 同时完成「够不够 1 GB」与「大小多少 MiB」：
+REM 省掉后面再单独调一次 PowerShell 取大小（每次冷启动约 0.2~0.4 s）。
+REM 输出形如 OK20251（够 1 GB）或 SMALL；加前缀是为了能校验 ——
+REM 万一路径不存在等导致外部程序吐错，也不会把非数字塞进 if 的数值比较里
+REM （那会报「此时不应有 ...」并把整段流程带停）。
+for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "$l=(Get-Item -LiteralPath '%MD_FILE%').Length; if($l -ge 1073741824){'OK'+[string][int][math]::Round($l/1MB)}else{'SMALL'}"`) do set "MD_RAW=%%a"
+if not defined MD_RAW exit /b 0
+if /i "%MD_RAW%"=="SMALL" goto :MD_TRY_BAD
+if not "%MD_RAW:~0,2%"=="OK" goto :MD_TRY_BAD
+set "MD_MB=%MD_RAW:~2%"
+if not defined MD_MB goto :MD_TRY_BAD
+if %MD_MB% LSS 1024 goto :MD_TRY_BAD
 set "MODEL_VALID=1"
-
 set "MODEL=%MD_FILE%"
-
-set "MODEL_LABEL=%~2"
-
+set "MODEL_MB=%MD_MB%"
+REM 标签体积按实际文件算（GiB，一位小数四舍五入）：菜单、检查项、内存需求
+REM 三处口径一致，不会出现「菜单 22.4 GB、检查 19.7 GB」这种自相矛盾。
+set /a MD_GB10=(%MD_MB% * 10 + 512) / 1024
+set "MODEL_GB=%MD_GB10:~0,-1%.%MD_GB10:~-1%"
+set "MODEL_LABEL=%~n1（MoE，无 MTP，%MODEL_GB% GB）"
+exit /b 0
+:MD_TRY_BAD
+  if not defined MD_WARNED echo         [警告]  %~1 不足 1 GB，判定为损坏或不完整，将重新下载覆盖
+  if not defined MD_WARNED set "MD_WARNED=1"
 exit /b 0
 
-
-
-REM ------------------------------------------------------------
-
-REM  子程序：显示模型文件大小（GB，两位小数）
-
-REM  之所以走子程序：直接写在 if 块里时，%MODEL_GB% 会在整个
-
-REM  块解析时就被展开（那时还是空值），回显出来是「大小  GB」。
-
-REM  子调用是全新的解析上下文，变量展开发生在执行时，正常。
-
-REM ------------------------------------------------------------
 
 :SHOW_MODEL_SIZE
-
-for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[math]::Round((Get-Item -LiteralPath '%MODEL%').Length/1GB,2)"`) do echo         大小/Size %%a GB（Q4 级别完整约 20 GB / a full Q4 is about 20 GB，明显偏小说明文件损坏 / much smaller means corrupt）
-
+REM 体积已由 MD_TRY 算好（MODEL_GB），这里不再调外部程序，也不重复换算。
+if not defined MODEL_GB set "MODEL_GB=?"
+:SMS_OUT
+echo         大小/Size %MODEL_GB% GB（Q4 级别完整约 20 GB / a full Q4 is about 20 GB，明显偏小说明文件损坏 / much smaller means corrupt）
 exit /b 0
 
-
-
-REM ============================================================
-
-REM  子程序：模型检查，没有就引导下载
-
-REM
-
-REM  在环境检查之后、档位菜单之前调用；已有可用模型时直接返回。
-
-REM  下载用系统自带 curl：-C - 断点续传，临时文件 .part，
-
-REM  下完改名成正式文件名并校验大小，然后自动回到档位菜单。
-
-REM  静默模式（quiet）不弹菜单：没有模型就交给后面的检查按
-
-REM  [失败] 拦下，避免无人值守时卡在输入上。
-
-REM ============================================================
 
 :MODEL_GATE
 
@@ -1944,9 +1930,9 @@ echo.
 
 echo ------------------------------------------------------------
 
-echo   1   IQ3_S     ~12.74 GB    32 GB 内存设备首选 / best for 32 GB RAM，速度略快 / slightly faster
+echo   1   IQ3_S     ~12.74 GB    16G 内存设备首选 / best for 16 GB RAM（有 4G 以上显存更宽松 / 4G+ VRAM makes it roomier）
 
-echo   2   Q4_K_XL   ~20.82 GB    默认推荐 / recommended，量化质量最好 / best quality
+echo   2   Q4_K_M    ~20.61 GB    推荐 / recommended（32G 内存 / 32 GB RAM，质量更好 / better quality）
 
 echo.
 
@@ -2004,11 +1990,11 @@ goto :MG_CONFIRM
 
 :MG_PICK_Q4
 
-set "DL_NAME=Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+set "DL_NAME=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
 
-set "DL_SIZE=20.82"
+set "DL_SIZE=20.61"
 
-set "DL_BYTES=22360456160"
+set "DL_BYTES=22134528992"
 
 set "DL_NEED_GB=22"
 
@@ -2343,36 +2329,59 @@ REM  子程序：确保访问密钥存在（首次运行自动生成，不覆盖已有文件）
 REM ============================================================
 
 :ENSURE_KEY
-
+REM 只在缺文件时创建；已有文件（用户可能自己加了多把密钥）绝不覆盖。
 if exist "%KEY_FILE%" exit /b 0
-
-set "NEWKEY="
-
-for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[guid]::NewGuid().ToString('N')"`) do set "NEWKEY=%%a"
-
-if not defined NEWKEY exit /b 0
-
-(
-
-echo # llama.cpp 服务访问密钥 / API keys（局域网设备调用时必须携带 / required for LAN calls）
-
-echo # 每行一个密钥 / one key per line，可写多行做轮换 / rotate by adding more；以井号开头的行是注释 / lines starting with # are comments.
-
-echo # 修改后需重启服务才生效 / restart the service to apply。文件位置/File：%KEY_FILE%
-
-echo %NEWKEY%
-
-) > "%KEY_FILE%"
-
+call :GEN_KEY
 exit /b 0
 
 
+:GEN_KEY
+REM 生成一把新密钥并（重新）写入密钥文件；成功 exit /b 0，失败 exit /b 1
+set "NEWKEY="
+for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[guid]::NewGuid().ToString('N')"`) do set "NEWKEY=%%a"
+if not defined NEWKEY exit /b 1
+(
+echo # llama.cpp 服务访问密钥 / API keys（局域网设备调用时必须携带 / required for LAN calls）
+echo # 每行一个密钥 / one key per line，可写多行做轮换 / rotate by adding more；以井号开头的行是注释 / lines starting with # are comments.
+echo # 修改后需重启服务才生效 / restart the service to apply。文件位置/File：%KEY_FILE%
+echo %NEWKEY%
+) > "%KEY_FILE%"
+exit /b 0
+:ASK_KEY
+REM 启动前最后一次询问：要不要换一把新的访问密钥。
+REM 放在「启动之前」而不是「启动之后」：密钥是启动时以 --api-key 参数传给
+REM llama-server 的，只有这里选 y 才会对本次服务立刻生效（启动后再改得重启服务）。
+REM 无论选 y 还是 n，启动成功后的 API 信息里都会再展示一次密钥，不怕忘。
+REM 静默模式（quiet）与「输入耗尽」都取默认值 n = 沿用，脚本化调用不受影响。
+if "%QUIET%"=="1" exit /b 0
+call :ENSURE_KEY
+call :LOAD_KEY
+echo.
+echo ------------------------------------------------------------
+echo   访问密钥 / API KEY
+echo ------------------------------------------------------------
+if defined API_KEY echo   当前密钥/CURRENT   %API_KEY%
+if not defined API_KEY echo   当前密钥/CURRENT   ^(尚无，将自动创建 / none yet, will be created^)
+echo.
+set "AK="
+echo   说明/NOTE：选 y 会用新密钥覆盖密钥文件（文件里其它密钥也会被清掉）/ y overwrites the key file
+set /p "AK=  是否生成新的 API Key？/ Generate a new API key? (y/N) : "
+set "AK=%AK:~0,1%"
+if /i "%AK%"=="y" goto :AK_NEW
+echo   沿用现有密钥/KEEP    %API_KEY%
+echo                       ^(启动成功后还会展示一次 / shown again after startup^)
+exit /b 0
+:AK_NEW
+call :GEN_KEY
+if errorlevel 1 goto :AK_FAIL
+call :LOAD_KEY
+echo   已生成新密钥/NEW KEY  %API_KEY%
+echo                       ^(启动成功后还会展示一次 / shown again after startup^)
+exit /b 0
+:AK_FAIL
+echo   [提示/HINT] 生成失败，继续沿用原密钥 / generation failed, keeping the current key
+exit /b 0
 
-REM ============================================================
-
-REM  子程序：读取访问密钥（仅用于显示；鉴权由 llama-server 自己完成）
-
-REM ============================================================
 
 :LOAD_KEY
 
@@ -2788,45 +2797,45 @@ if /i "%MMPROJ_SW%"=="off" set "BGA_MMPROJ=0"
 
 if not exist "%MMPROJ%" set "BGA_MMPROJ=0"
 
-set /a BGA_KVF16=%CTX% / 50
+set "BGA_MMPROJ_AUTOOFF="
 
-set /a BGA_KVQ8=%CTX% / 100
+REM 视觉塔与层数只能二选一：mmproj 实测要吃约 930 MiB 专用显存。
 
-set "BGA_KVQ="
+REM 做法：先按「载」算一次可用层数，再按「不载」算一次；若省下它能让层数
 
-set "BGA_KVNAME=f16"
+REM 多出 GPU_MMPROJ_MIN_GAIN 层以上，就自动不载（文字场景优先速度），
 
-set /a BGA_AVAIL=%GPU_TOTAL_MIB% - %GPU_OTHER_MIB% - %GPU_FIXED_MIB% - %BGA_MMPROJ% - %BGA_KVF16% - %GPU_SAFETY_MIB%
+REM 并在启动信息里说明；必须处理图片就把 MMPROJ_SW 设成 on 强制载入。
 
-set /a BGA_N=%BGA_AVAIL% / %GPU_LAYER_MIB%
+if /i not "%MMPROJ_SW%"=="auto" goto :BGA_MMP_DECIDED
 
-set /a BGA_KVUSED=%BGA_KVF16%
+if "%BGA_MMPROJ%"=="0" goto :BGA_MMP_DECIDED
 
-if %BGA_N% GEQ %GPU_NLAYER% goto :BGA_PICK_DONE
+call :BGA_CALC
 
-REM 还没到层数上限 —— 再算一遍 q8_0（KV 减半）。小显存卡上这通常能多装 8 层左右，
+set "BGA_N_WITH=%BGA_N%"
 
-REM 而代价只有约 0.7% 速度，所以只要多出 2 层以上就换 q8_0；只多 1 层不值得降 KV 精度。
+set "BGA_MMPROJ_KEEP=%BGA_MMPROJ%"
 
-set /a BGA_AVAIL2=%GPU_TOTAL_MIB% - %GPU_OTHER_MIB% - %GPU_FIXED_MIB% - %BGA_MMPROJ% - %BGA_KVQ8% - %GPU_SAFETY_MIB%
+set "BGA_MMPROJ=0"
 
-set /a BGA_N2=%BGA_AVAIL2% / %GPU_LAYER_MIB%
+call :BGA_CALC
 
-if %BGA_N2% GTR %GPU_NLAYER% set /a BGA_N2=%GPU_NLAYER%
+set /a BGA_MMP_GAIN=%BGA_N% - %BGA_N_WITH%
 
-set /a BGA_GAIN=%BGA_N2% - %BGA_N%
+if %BGA_MMP_GAIN% LSS %GPU_MMPROJ_MIN_GAIN% goto :BGA_MMP_REVERT
 
-if %BGA_GAIN% LSS 2 goto :BGA_PICK_DONE
+set "BGA_MMPROJ_AUTOOFF=1"
 
-set /a BGA_AVAIL=%BGA_AVAIL2%
+goto :BGA_MMP_DECIDED
 
-set /a BGA_N=%BGA_N2%
+:BGA_MMP_REVERT
 
-set /a BGA_KVUSED=%BGA_KVQ8%
+set "BGA_MMPROJ=%BGA_MMPROJ_KEEP%"
 
-set "BGA_KVQ=--cache-type-k q8_0 --cache-type-v q8_0"
+:BGA_MMP_DECIDED
 
-set "BGA_KVNAME=q8_0"
+call :BGA_CALC
 
 :BGA_PICK_DONE
 
@@ -2851,6 +2860,62 @@ if %BGA_N% GTR 31 goto :BGA_NOTE_DONE
 set "GPU_LOWNOTE=层数偏少会明显影响速度：可关掉浏览器/视频等程序腾显存，或把 MMPROJ_SW 设为 off / fewer layers will slow it down: close GPU-heavy apps, or set MMPROJ_SW=off"
 
 :BGA_NOTE_DONE
+
+set "MMPROJ_NOTE="
+
+if "%BGA_MMPROJ_AUTOOFF%"=="1" set "MMPROJ_NOTE=为腾出显存给权重，本次自动不载视觉塔（省 %GPU_MMPROJ_MIB% MiB，换来 %BGA_MMP_GAIN% 层上显存）。要处理图片请把 MMPROJ_SW 设为 on / vision tower auto-disabled to free VRAM for %BGA_MMP_GAIN% more GPU layers; set MMPROJ_SW=on to enable image input"
+
+exit /b 0
+
+:BGA_CALC
+
+REM 子程序：按当前 BGA_MMPROJ 算「能上几层」。
+
+REM 入参（已在环境里）：CTX / BGA_MMPROJ / GPU_TOTAL_MIB / GPU_OTHER_MIB /
+
+REM   GPU_FIXED_MIB / GPU_SAFETY_MIB / GPU_LAYER_MIB / GPU_NLAYER。
+
+REM 出参：BGA_AVAIL / BGA_N / BGA_KVQ / BGA_KVNAME / BGA_KVUSED。
+
+set /a BGA_KVF16=%CTX% / 50
+
+set /a BGA_KVQ8=%CTX% / 100
+
+set "BGA_KVQ="
+
+set "BGA_KVNAME=f16"
+
+set /a BGA_AVAIL=%GPU_TOTAL_MIB% - %GPU_OTHER_MIB% - %GPU_FIXED_MIB% - %BGA_MMPROJ% - %BGA_KVF16% - %GPU_SAFETY_MIB%
+
+set /a BGA_N=%BGA_AVAIL% / %GPU_LAYER_MIB%
+
+set /a BGA_KVUSED=%BGA_KVF16%
+
+if %BGA_N% GEQ %GPU_NLAYER% exit /b 0
+
+REM 还没到层数上限 —— 再算一遍 q8_0（KV 减半）。小显存卡上这通常能多装 8 层左右，
+
+REM 而代价只有约 0.7% 速度，所以只要多出 2 层以上就换 q8_0；只多 1 层不值得降 KV 精度。
+
+set /a BGA_AVAIL2=%GPU_TOTAL_MIB% - %GPU_OTHER_MIB% - %GPU_FIXED_MIB% - %BGA_MMPROJ% - %BGA_KVQ8% - %GPU_SAFETY_MIB%
+
+set /a BGA_N2=%BGA_AVAIL2% / %GPU_LAYER_MIB%
+
+if %BGA_N2% GTR %GPU_NLAYER% set /a BGA_N2=%GPU_NLAYER%
+
+set /a BGA_GAIN=%BGA_N2% - %BGA_N%
+
+if %BGA_GAIN% LSS 2 exit /b 0
+
+set /a BGA_AVAIL=%BGA_AVAIL2%
+
+set /a BGA_N=%BGA_N2%
+
+set /a BGA_KVUSED=%BGA_KVQ8%
+
+set "BGA_KVQ=--cache-type-k q8_0 --cache-type-v q8_0"
+
+set "BGA_KVNAME=q8_0"
 
 exit /b 0
 
@@ -2953,6 +3018,8 @@ if defined GPU_BUDGET echo   显存预算/BUDGET   %GPU_BUDGET%
 if defined GPU_BUDGET_EN echo              %GPU_BUDGET_EN%
 
 if defined GPU_OTHER_NOTE echo   ^[注意/NOTE^]     %GPU_OTHER_NOTE%
+
+if defined MMPROJ_NOTE echo   ^[注意/NOTE^]     %MMPROJ_NOTE%
 
 if defined GPU_LOWNOTE echo   ^[注意/NOTE^]     %GPU_LOWNOTE%
 
@@ -3134,7 +3201,7 @@ if defined MODEL_VALID (
 
   if "%MODEL_SOFT%"=="1" (
 
-    echo         [警告/WARN]  没有可用模型 / no usable model，接下来会引导下载 / will offer to download（1=IQ3_S / 2=Q4_K_XL）
+    echo         [警告/WARN]  没有可用模型 / no usable model，接下来会引导下载 / will offer to download（1=IQ3_S / 2=Q4_K_M）
 
   ) else (
 
@@ -3382,61 +3449,67 @@ REM  子程序：内存安全检查
 
 REM ============================================================
 
+:NEED_FOR_CTX
+REM 入参：%~1 = 上下文大小；出参：NEED_GB（总内存需求，GiB，向上取整）
+REM 口径：模型大小 + KV（每 64K 上下文约 1 GiB）+ 2 GiB（系统与计算缓冲）
+REM 自检：IQ3_S 12.7 GiB + 64K = 13 + 1 + 2 = 16 GiB，正好对上实测口径
+REM       「16G 内存 + 4G 以上显存可以跑到 64K」。
+set "NFC_MB=%MODEL_MB%"
+if not defined NFC_MB set "NFC_MB=21504"
+set /a NFC_MODEL=(NFC_MB + 1023) / 1024
+set /a NFC_KV=(%~1 + 65535) / 65536
+set /a NEED_GB=NFC_MODEL + NFC_KV + 2
+exit /b 0
 :MEM_CHECK
-
 set "MEM_BLOCK=0"
-
 set "MEM_WARN=0"
-
-for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[int]((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory/1024)"`) do set "FREE_MB=%%a"
-
-for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[int]((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory/1GB)"`) do set "TOTAL_GB=%%a"
-
+set "MEM_FAIL_WHY="
+REM 可用内存与总内存一次问完：每次外部调用冷启动要 0.2~0.4 s，能省就省。
+set "MEM_RAW="
+for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "$f=[int]((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory/1024); $t=[int]((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory/1MB); 'F'+$f+' T'+$t"`) do set "MEM_RAW=%%a"
+if not defined MEM_RAW goto :MEMC_PARSE_FAIL
+if not "%MEM_RAW:~0,1%"=="F" goto :MEMC_PARSE_FAIL
+REM 两个字段各带一个字母前缀（F…/T…），都要去掉 —— 漏掉一个的话
+REM set /a 会把 "T62444" 当成变量名（未定义=0），总内存被算成 0，
+REM 于是「总内存不足」误判，还会和输入耗尽叠加成死循环。
+for /f "tokens=1,2" %%a in ("%MEM_RAW%") do set "FREE_RAW=%%a"
+for /f "tokens=1,2" %%a in ("%MEM_RAW%") do set "TOTAL_RAW=%%b"
+set "FREE_MB=%FREE_RAW:~1%"
+set "TOTAL_MB=%TOTAL_RAW:~1%"
+if not defined FREE_MB goto :MEMC_PARSE_FAIL
+if not defined TOTAL_MB goto :MEMC_PARSE_FAIL
+goto :MEMC_OK
+:MEMC_PARSE_FAIL
+REM 读不到就当作「不知道」，不拦启动：宁可让用户跑起来，也不要因为探测失败卡住。
+set "FREE_MB=0"
+set "TOTAL_MB=0"
+:MEMC_OK
 set /a FREE_GB=%FREE_MB% / 1024
-
+set /a TOTAL_GB=%TOTAL_MB% / 1024
+call :NEED_FOR_CTX %CTX%
 set /a NEED_MB=%NEED_GB% * 1024
-
-set /a WARN_MB=%NEED_MB% * 12 / 10
-
+set /a HALF_MB=%NEED_MB% / 2
 echo.
-
-echo   内存检查/MEMORY：总内存/total %TOTAL_GB% GB，当前可用/free %FREE_GB% GB，本档位需要约/this tier needs ~%NEED_GB% GB
-
-if %FREE_MB% LSS %NEED_MB% (
-
-  echo   [失败/FAIL]  可用内存不足 / not enough free RAM，启动会触发系统大量换页甚至卡死 / heavy swapping or a freeze
-
-  set "MEM_BLOCK=1"
-
-) else (
-
-  if %FREE_MB% LSS %WARN_MB% (
-
-    echo   [警告/WARN]  可用内存接近需求下限 / free RAM near the minimum，建议先关闭占用内存的程序 / close memory-hungry apps first
-
-    set "MEM_WARN=1"
-
-  ) else (
-
-    echo   正常/OK    内存充足 / plenty of RAM
-
-  )
-
-)
-
+echo   内存检查/MEMORY：总内存/total %TOTAL_GB% GB，当前可用/free %FREE_GB% GB，本档位+本模型需要约/needs ~%NEED_GB% GB
+REM 判定口径（2026-10-16 改）：
+REM   1. 总内存 < 需求        -> 失败（机器规格本身不够；换更小档位或更小量化）
+REM   2. 可用内存 < 需求的一半 -> 失败（现在被别的程序吃掉太多，必然大量换页）
+REM   3. 可用内存 < 需求       -> 警告（可以继续，但可能变慢）
+REM 为什么硬门槛看「总内存」：档位表上的 16G/32G 说的就是机器总内存，
+REM   而且模型是 mmap 的、不必一次性全驻留；只看可用内存会把 16G 机器误杀。
+REM   探测失败（TOTAL_MB=0）时跳过内存判定，不阻断启动。
+if %TOTAL_MB% GTR 0 if %TOTAL_GB% LSS %NEED_GB% set "MEM_BLOCK=1"
+if %TOTAL_MB% GTR 0 if %TOTAL_GB% LSS %NEED_GB% set "MEM_FAIL_WHY=total"
+if %TOTAL_MB% GTR 0 if %FREE_MB% LSS %HALF_MB% set "MEM_BLOCK=1"
+if %TOTAL_MB% GTR 0 if %FREE_MB% LSS %HALF_MB% set "MEM_FAIL_WHY=free"
+if %TOTAL_MB% GTR 0 if not "%MEM_BLOCK%"=="1" if %FREE_MB% LSS %NEED_MB% set "MEM_WARN=1"
+if "%MEM_BLOCK%"=="1" if "%MEM_FAIL_WHY%"=="total" echo   [失败/FAIL]  总内存低于本档位与模型的需求 / total RAM below what this tier and model need
+if "%MEM_BLOCK%"=="1" if "%MEM_FAIL_WHY%"=="free" echo   [失败/FAIL]  可用内存不足需求的一半，启动会大量换页 / free RAM under half of the requirement
+if "%MEM_BLOCK%"=="0" if "%MEM_WARN%"=="1" echo   [警告/WARN]  可用内存低于需求，建议先关掉占内存的程序 / free RAM below the requirement, close memory-hungry apps first
+if "%MEM_BLOCK%"=="0" if "%MEM_WARN%"=="0" if %TOTAL_MB% GTR 0 echo   正常/OK    内存充足 / plenty of RAM
+if "%MEM_BLOCK%"=="0" if %TOTAL_MB%==0 echo   正常/OK    内存探测未返回，跳过内存判定 / memory probe returned nothing, check skipped
 exit /b 0
 
-
-
-REM ------------------------------------------------------------
-
-REM  子程序：内存偏紧时询问是否仍要启动
-
-REM  输 y 继续（ASK_RC=1）；其它任何输入（含直接回车）都算取消
-
-REM  （ASK_RC=0）。必须独立成子程序，原因见调用处的注释。
-
-REM ------------------------------------------------------------
 
 :ASK_MEM_CONTINUE
 

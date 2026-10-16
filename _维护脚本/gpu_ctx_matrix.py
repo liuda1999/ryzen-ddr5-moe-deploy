@@ -12,7 +12,7 @@
 import io, json, os, re, subprocess, time, urllib.request
 
 BIN = r"E:\llm-cpp\llama.cpp\build-zen5\bin"
-MODEL = r"E:\llm-cpp\llama.cpp\models\Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+MODEL = r"E:\llm-cpp\llama.cpp\models\Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
 OUT = r"E:\llm-cpp-gpu-test\ctx_matrix.csv"
 PORT = 35079
 PROMPT = "Summarize briefly: " + ("the quick brown fox jumps over the lazy dog. " * 6)

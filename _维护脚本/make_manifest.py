@@ -37,7 +37,7 @@ DIR_REQUIRED = [
 ]
 MODEL_DIR = os.path.join("llama.cpp", "models")
 MODEL_FILES = [
-    "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf",
+    "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
     "Qwen3.6-35B-A3B-UD-IQ3_S.gguf",
     "mmproj-BF16.gguf",
 ]
@@ -125,7 +125,7 @@ def main():
     out.append('  GitHub 仓库出于体积原因不含模型与构建中间产物，')
     out.append('  因此在仓库副本里执行校验会提示模型缺失 —— 这是预期结果。')
     out.append('  仓库使用者请按 README.md 中的链接自行下载模型。')
-    out.append('  （当前主模型名：Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf（首选）/ Qwen3.6-35B-A3B-UD-IQ3_S.gguf（备用），来源 unsloth/Qwen3.6-35B-A3B-GGUF）')
+    out.append('  （当前主模型名：Qwen3.6-35B-A3B-UD-Q4_K_M.gguf（首选）/ Qwen3.6-35B-A3B-UD-IQ3_S.gguf（备用），来源 unsloth/Qwen3.6-35B-A3B-GGUF）')
     out.append('')
     out.append('校验方法：把本文件连同项目一起拷到目标机，然后运行')
     out.append('    python _维护脚本\\verify_package.py')

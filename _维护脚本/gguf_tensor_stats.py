@@ -3,7 +3,7 @@
 
 用法：
     python gguf_tensor_stats.py [模型路径]
-    （不传路径则用项目里默认的 Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf）
+    （不传路径则用项目里默认的 Qwen3.6-35B-A3B-UD-Q4_K_M.gguf）
 
 为什么需要它：MoE 模型里专家权重占了大头但每 token 只激活一小部分，
 把"每 token 必读"的那部分放显存才划算。这个脚本把各类权重的体积量出来，
@@ -23,7 +23,7 @@ import struct
 import sys
 
 PATH = sys.argv[1] if len(sys.argv) > 1 else \
-    r"E:\llm-cpp\llama.cpp\models\Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+    r"E:\llm-cpp\llama.cpp\models\Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
 
 SIMPLE = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1,
           10: 8, 11: 8, 12: 8}

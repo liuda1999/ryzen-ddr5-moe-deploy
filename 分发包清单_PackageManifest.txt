@@ -1,7 +1,7 @@
 ================================================================================================
 Qwen3.6-35B 本地大模型 —— 分发包清单
 ================================================================================================
-生成时间：2026-10-16 05:24:56
+生成时间：2026-10-16 09:23:35
 源目录  ：E:\llm-cpp
 文件数  ：70      总大小：33.42 GB（33.42 GB）
 
@@ -17,7 +17,7 @@ Git 仓库说明：
   GitHub 仓库出于体积原因不含模型与构建中间产物，
   因此在仓库副本里执行校验会提示模型缺失 —— 这是预期结果。
   仓库使用者请按 README.md 中的链接自行下载模型。
-  （当前主模型名：Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf（首选）/ Qwen3.6-35B-A3B-UD-IQ3_S.gguf（备用），来源 unsloth/Qwen3.6-35B-A3B-GGUF）
+  （当前主模型名：Qwen3.6-35B-A3B-UD-Q4_K_M.gguf（首选）/ Qwen3.6-35B-A3B-UD-IQ3_S.gguf（备用），来源 unsloth/Qwen3.6-35B-A3B-GGUF）
 
 校验方法：把本文件连同项目一起拷到目标机，然后运行
     python _维护脚本\verify_package.py
@@ -26,13 +26,13 @@ Git 仓库说明：
 ------------------------------------------------------------------------------------------------
 【1】根目录必需文件（含授权文件与随包资产）
 ------------------------------------------------------------------------------------------------
-启动大模型_StartModel.bat	77199	c4f51f81fdbd5ab51b898bc768ec143c62d47ab70b6c16ef232e822d8312bb0b
-环境检查_EnvCheck.bat	20630	14d893e750d837e9633703a256e0a35d16ec5d4533bc0e4285d24f1bc97b7dec
+启动大模型_StartModel.bat	85654	ecb829d125f92cc6d98df6912804a189229844dc646d20c480056c8f0c00e198
+环境检查_EnvCheck.bat	21924	13226671f6323616224d7c587e785a0f35e2f61236b3039af80e8fd21b7a92d1
 开放局域网端口_OpenLanPort.bat	3439	c14d344b4b16df17a404199c94ca98024ccd9498f0c4bbbb235227286038e617
-README.md	34951	06d808c53ec43c21f4a97f071b8e0bd6332b8f018b2a6f139c0bd06ad474f985
-使用说明_UserGuide.md	27387	8be5b7ad54de1b19b6b980acaf0f5346f0a1b4451bcb0ff36e2941541eef53f6
-参数阶梯手册_TierManual.md	17601	19db1a1fb7b8871abd90c39bc5dc3dad656f639e48888058afddfbfc5d77b30f
-部署说明_DeployNotes.txt	29111	d9a476890b82e523961f7e16ca4945f1301ccec3ba84ecae75d26ba3c0eee1cf
+README.md	39312	1fee4208dce2912a6e7b42efd1bf5906b42b5a0af7ae168d4f13dc3e581b0fc5
+使用说明_UserGuide.md	29238	c6100b184d0a54dda47ce757b3d6ca55955d11e3b99d85c3f4e5505632969997
+参数阶梯手册_TierManual.md	21328	9d18c3737f39ce9b58adccb9b78da12f0530af764daa26c2bcf8d0ad7fd25f77
+部署说明_DeployNotes.txt	29680	7ad7f0a557e4fcba1708239121fe3edaa3b2fe51295a965b7922e384698578d6
 LICENSE	8412	c24541876f408e13b9592a6447680cc71cfc32cd259cb1ae70e987ed8823cd88
 assets\logo.jpg	97226	f0a02c856fab635ae96011dd79e007775469c64c06a84ce6f9abe06f15b43589
 
@@ -40,8 +40,8 @@ assets\logo.jpg	97226	f0a02c856fab635ae96011dd79e007775469c64c06a84ce6f9abe06f15
 【2】根目录可选文件（按需带上）
 ------------------------------------------------------------------------------------------------
 *重新编译_Rebuild.bat	2606	682660bfd5de64b1688c83568d49cc0967c3ae5b53d12f7ffabf4685856655c9
-*验收报告_AcceptanceReport.md	38339	e7b8a758d280a2e73a7d1710c72efde07b2fb079cb571f5c2f00bb48cd5e24da
-*llama.cpp\models\下载模型.md	5908	8a7c4eca1eff34f2cbe7aceb6d4cfe32b4ab4cd1d84c51381ccb83a5901364fe
+*验收报告_AcceptanceReport.md	50535	7cd3e4c8d8604195d7f009f41096bbe4908e38382d15bd85446302da907150a0
+*llama.cpp\models\下载模型.md	6834	3c78dba4908739f5b9ae5a8c1b8eaf66ce50039409c3f9c1a92f326d2b6d26f2
 
 ------------------------------------------------------------------------------------------------
 【3】运行产物目录（整包必需，含随包附带的 VC++ 运行时）
@@ -105,8 +105,8 @@ llama.cpp\build-zen5\bin\verify-isa.exe	141312	cfd42716d667a64aa370d3367666c69d1
 ------------------------------------------------------------------------------------------------
 【4】模型文件（必需）
 ------------------------------------------------------------------------------------------------
-*llama.cpp\models\下载模型.md	5908	8a7c4eca1eff34f2cbe7aceb6d4cfe32b4ab4cd1d84c51381ccb83a5901364fe
-llama.cpp\models\Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf	21233608512	(未计算)
+*llama.cpp\models\下载模型.md	6834	3c78dba4908739f5b9ae5a8c1b8eaf66ce50039409c3f9c1a92f326d2b6d26f2
+llama.cpp\models\Qwen3.6-35B-A3B-UD-Q4_K_M.gguf	21233608512	(未计算)
 llama.cpp\models\Qwen3.6-35B-A3B-UD-IQ3_S.gguf	13676723168	(未计算)
 llama.cpp\models\mmproj-BF16.gguf	902822528	(未计算)
 

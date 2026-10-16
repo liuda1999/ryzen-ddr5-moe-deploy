@@ -12,7 +12,7 @@ REM ============================================================
 
 set "ROOT=%~dp0"
 set "BIN_DIR=%ROOT%llama.cpp\build-zen5\bin"
-set "MODEL=%ROOT%llama.cpp\models\Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+set "MODEL=%ROOT%llama.cpp\models\Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
 set "MMPROJ=%ROOT%llama.cpp\models\mmproj-BF16.gguf"
 set "LOG_DIR=%ROOT%logs"
 set "PID_FILE=%LOG_DIR%\server.pid"
@@ -61,13 +61,18 @@ echo         提示/HINT  icelake 变体缺失/missing，需重新编译补齐 / rebuild to ad
 :PISA_END
 echo.
 
+REM 先按与启动脚本相同的顺序找模型（Q4_K_M -> IQ3_S）；
+REM 否则只放了 IQ3_S 的机器会被误报「模型文件缺失」。
+call :DETECT_MODEL
+
 echo [4/11] 模型文件 / Model file
 if not exist "%MODEL%" set "MODEL_MISS=1"
 call :CHK_FILE "%MODEL%"
 if exist "%MODEL%" (
   REM 注意：这里必须在 for 体内直接用 %%a 输出。若先 set 再 echo，由于括号块内的
   REM       %VAR% 在整块解析时就展开，会拿到空值（踩过一次的坑）。
-  for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[math]::Round((Get-Item -LiteralPath '%MODEL%').Length/1GB,2)"`) do echo         大小/Size %%a GB（Q4 级别完整约 20 GB / a full Q4 is about 20 GB，明显偏小说明文件损坏 / much smaller means corrupt）
+  REM 体积已由 :DETECT_MODEL 算好（与启动脚本同一套算法与单位），直接输出。
+  echo         大小/Size %MODEL_GB% GB（Q4 级别完整约 20 GB / a full Q4 is about 20 GB，明显偏小说明文件损坏 / much smaller means corrupt）
 ) else (
   echo         下载地址见 / download links in README.md 的「模型下载」一节 / Model download section
   echo         或本机文件 / or the local file llama.cpp\models\下载模型.md
@@ -280,6 +285,34 @@ endlocal
 exit /b 0
 
 REM ============================================================
+REM ============================================================
+REM  子程序：探测可用模型（顺序与启动脚本一致）
+REM  Q4_K_M -> IQ3_S，认到第一个「存在且 >= 1 GB」的即采用；
+REM  都没认到就保留上面 MODEL 常量的默认路径（[4/11] 会照实报缺失）。
+REM  出参：MODEL（路径）、MODEL_GB（体积，一位小数）、MODEL_FOUND
+REM ============================================================
+:DETECT_MODEL
+set "MODEL_FOUND="
+set "MODEL_GB=?"
+set "MD_DIR=%ROOT%llama.cpp\models"
+for %%f in (Qwen3.6-35B-A3B-UD-Q4_K_M.gguf Qwen3.6-35B-A3B-UD-IQ3_S.gguf) do call :DM_TRY "%%f"
+exit /b 0
+
+:DM_TRY
+if defined MODEL_FOUND exit /b 0
+if not exist "%MD_DIR%\%~1" exit /b 0
+set "MD_RAW="
+REM 输出 OK<MiB> 或 SMALL；加前缀是为了能校验，避免非数字进 if 比较
+for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "$l=(Get-Item -LiteralPath '%MD_DIR%\%~1').Length; if($l -ge 1073741824){'OK'+[string][int][math]::Round($l/1MB)}else{'SMALL'}"`) do set "MD_RAW=%%a"
+if not defined MD_RAW exit /b 0
+if not "%MD_RAW:~0,2%"=="OK" exit /b 0
+set "MODEL_FOUND=1"
+set "MD_MB=%MD_RAW:~2%"
+set /a MD_GB10=(%MD_MB% * 10 + 512) / 1024
+set "MODEL_GB=%MD_GB10:~0,-1%.%MD_GB10:~-1%"
+set "MODEL=%MD_DIR%\%~1"
+exit /b 0
+
 :CHK_FILE
 if exist "%~1" (
   echo         正常/OK    %~nx1

@@ -121,12 +121,23 @@ def main():
     usage = r.get("usage", {})
     pt, ct = usage.get("prompt_tokens"), usage.get("completion_tokens")
 
+    t = r.get("timings") or {}
+
     print(f"[3/3] 完成，用时 {dt:.1f}s  {time.strftime('%H:%M:%S')}")
     print("-" * 74)
     print(f"  prompt_tokens    = {pt}")
     print(f"  completion_tokens= {ct}")
     print(f"  finish_reason    = {r['choices'][0].get('finish_reason')}")
     print(f"  墙钟总耗时        = {dt:.1f}s")
+    if t:
+        # 服务端自报的吞吐（含首 token 延迟在内按纯计算段计时，最接近真实体感）
+        print("-" * 74)
+        print(f"  [预填充/Prefill]  {t.get('prompt_n')} token  "
+              f"{t.get('prompt_ms', 0) / 1000:.2f}s  →  {t.get('prompt_per_second'):.2f} t/s")
+        print(f"  [生成/Decode]     {t.get('predicted_n')} token  "
+              f"{t.get('predicted_ms', 0) / 1000:.2f}s  →  {t.get('predicted_per_second'):.2f} t/s")
+        if t.get("predicted_n"):
+            print(f"  [首 token 延迟]   {t.get('prompt_ms', 0) / 1000:.2f}s（预填充完成才出第一个字）")
     print("-" * 74)
     print(f"  [回答] {content[:500]}")
     print("-" * 74)
