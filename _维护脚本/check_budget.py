@@ -72,7 +72,7 @@ for name, total in GPUS:
             f'set "MODEL_MB={MODEL_BYTES // 1048576}"',
             f'set "CTX={ctx}"',
             'call :BGA_CALC_ALL',
-            f'echo R;{name};{tier};{ctx};%BGA_N%;%BGA_MMPROJ%;%BGA_KVNAME%;%BGA_KVUSED%;%BGA_AVAIL%;%GPU_ARGS%;%NEED_GB%',
+            f'echo R;{name};{tier};{ctx};%BGA_N%;%BGA_MMPROJ%;%BGA_KVNAME%;%BGA_KVUSED%;%BGA_NCMOE%;%BGA_EXPERT_GPU%;%BGA_AVAIL%;%GPU_ARGS%;%NEED_GB%',
             '',
         ]
 # 一次性进入 auto 分支（GPU_ARGS 由 :BUILD_GPU_ARGS 产出）
@@ -87,14 +87,15 @@ err = p.stdout.decode("gbk", "replace").replace("\r", "")
 bad = [l for l in err.splitlines()
        if l.strip() and not l.startswith("R;") and "系统找不到" not in l]
 
-hdr = ("显卡", "档", "ctx", "层数", "视觉塔", "KV", "KV_MiB", "可给权重", "参数", "需内存")
+hdr = ("显卡", "档", "ctx", "层数", "视觉塔", "KV", "KV_MiB",
+       "专家GPU", "专家CPU", "可给权重", "参数", "需内存")
 print(" | ".join(hdr))
-print("-" * 132)
+print("-" * 150)
 for r in rows:
     f = r.split(";")
-    if len(f) < 11:
+    if len(f) < 13:
         print("!! 解析失败:", r[:80]); continue
-    name, tier, ctx, n, mmp, kv, kvu, avail, args, need = f[1:11]
+    name, tier, ctx, n, mmp, kv, kvu, ncmoe, expg, avail, args, need = f[1:13]
     if not str(n).lstrip("-").isdigit():
         print("!! 层数非法:", r[:80]); continue
     n_i = int(n)
@@ -102,10 +103,22 @@ for r in rows:
     if n_i < 0:
         flag = "  <== 负数层数！"
     if n_i >= 8 and ("--n-gpu-layers %s " % n_i) not in args + " ":
-        flag = "  <== 参数串(%s)与层数(%d)不一致！" % (args.count("--n-gpu-layers") and args.split("--n-gpu-layers ")[1].split()[0], n_i)
-    print(" | ".join([name, tier, ctx, n, mmp, kv, kvu, avail,
-                      args.replace("--cpu-moe --parallel 1", ".."), need]) + flag)
-print("-" * 132)
+        got = args.split("--n-gpu-layers ")[1].split()[0] if "--n-gpu-layers " in args else "?"
+        flag = "  <== 参数串(%s)与层数(%d)不一致！" % (got, n_i)
+    # 专家卸载一致性：ncmoe==40 应走 --cpu-moe；1..39 应走 --n-cpu-moe ncmoe；0 应两者都无
+    if ncmoe.isdigit():
+        nc = int(ncmoe)
+        if nc >= 40 and "--cpu-moe" not in args:
+            flag += "  <== 专家全留CPU却无 --cpu-moe！"
+        elif 1 <= nc <= 39 and ("--n-cpu-moe %s" % nc) not in args:
+            flag += "  <== --n-cpu-moe(%s) 与专家留CPU层数(%d)不一致！" % (ncmoe, nc)
+        elif nc == 0 and ("--n-cpu-moe" in args or "--cpu-moe" in args):
+            flag += "  <== 专家全上显存却仍带 cpu-moe 参数！"
+    else:
+        flag += "  <== 专家层数非法(%r)" % ncmoe
+    shown = args.replace("--parallel 1", "..").strip()
+    print(" | ".join([name, tier, ctx, n, mmp, kv, kvu, expg, ncmoe, avail, shown, need]) + flag)
+print("-" * 150)
 print("异常输出行：%d" % len(bad))
 for l in bad[:10]:
     print("   ", l[:120])

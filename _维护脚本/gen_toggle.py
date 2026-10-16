@@ -249,6 +249,8 @@ set "GPU_MIN_FREE_MIB=1536"   REM 空闲显存低于此值就不启用（再低�
 
 set "GPU_LAYER_MIB=40"        REM 每层「非专家权重」≈40 MiB（实测 39.6：41 层共 1625 MiB）
 
+set "GPU_EXPERT_LAYER_MIB=500" REM 每层「MoE 专家权重」≈500 MiB（Q4_K_M 实测单层 432~498 MiB，取最大 498 上取整，防越界分页）
+
 set "GPU_FIXED_MIB=440"       REM 计算缓冲 + CUDA 上下文（不含 KV；40 层满载实测 约413，取 440）
 
 set "GPU_SAFETY_MIB=96"       REM 安全垫：留出余量，驱动就不必回收 llama 的页（调大更保险、更慢）
@@ -2748,9 +2750,10 @@ if /i "%GPU_MODE%"=="manual" goto :BGA_MANUAL
 REM ---------- auto ----------
 
 REM 中端显存带（8/12/16G：约 7600~17500 MiB）专用策略：KV 强制 q8_0、视觉塔常驻（开）。
-REM 这些卡用 f16 本就能上满 40 层，但 q8 在 96K/128K 高上下文留更多余量、
-REM 并保证视觉塔不被挤掉；层数不变（模型只有 40 层），生成速度等价。
-REM 覆盖范围：8/10/12/16G。6G 及以下、20G 及以上不在带内，维持原有 f16 逻辑。
+REM q8 在 96K/128K 高上下文留更多余量、并保证视觉塔不被挤掉；省下的显存还能多装
+REM 专家层（见 :BGA_MOE_CALC）—— 显存越大，上显存的专家层越多、生成越快，这正是
+REM 「同 CPU / DDR5 下，大显存换更快 token」的着力点。
+REM 覆盖范围：8/10/12/16G。6G 及以下、20G 及以上不在带内（KV 精度按各自逻辑自适应）。
 set "BGA_FORCE_Q8="
 set "BGA_MMPROJ_FORCE="
 if %GPU_TOTAL_MIB% GEQ 7600 if %GPU_TOTAL_MIB% LEQ 17500 (
@@ -2874,15 +2877,31 @@ if %BGA_N% LSS 8 goto :BGA_SMALL
 
 if %BGA_N% GTR %GPU_NLAYER% set /a BGA_N=%GPU_NLAYER%
 
-set "GPU_ARGS=--n-gpu-layers %BGA_N% --cpu-moe --parallel 1 %BGA_KVQ%"
+REM 非专家权重压满后还有剩余的显存，就拿来把「部分专家层」也搬上显存：
+
+REM   --n-cpu-moe K 把「前 K 层」的专家权重留在 CPU，其余层专家上显存。
+
+REM   K 越小 = 上显存的专家越多 = 解码越快。显存越大 K 越小 —— 这就是
+
+REM   「同 CPU / DDR5 下，显存越大 token 越快」的着力点。
+
+call :BGA_MOE_CALC
+
+set "BGA_MOE_ARG=--cpu-moe"
+
+if %BGA_NCMOE% LSS %GPU_NLAYER% set "BGA_MOE_ARG=--n-cpu-moe %BGA_NCMOE%"
+
+if %BGA_NCMOE% LEQ 0 set "BGA_MOE_ARG="
+
+set "GPU_ARGS=--n-gpu-layers %BGA_N% %BGA_MOE_ARG% --parallel 1 %BGA_KVQ%"
 
 set "GPU_BUDGET=显存 %GPU_TOTAL_MIB% MiB - 其它程序 %GPU_OTHER_MIB% - 计算/上下文 %GPU_FIXED_MIB% - 视觉塔 %BGA_MMPROJ% - KV（%BGA_KVNAME%）%BGA_KVUSED% - 安全垫 %GPU_SAFETY_MIB% → 可给权重 %BGA_AVAIL% MiB（÷%GPU_LAYER_MIB% = %BGA_N% 层）"
 
 set "GPU_BUDGET_EN=VRAM %GPU_TOTAL_MIB% - other apps %GPU_OTHER_MIB% - compute/ctx %GPU_FIXED_MIB% - mmproj %BGA_MMPROJ% - KV（%BGA_KVNAME%）%BGA_KVUSED% - headroom %GPU_SAFETY_MIB% → weights %BGA_AVAIL% MiB = %BGA_N% layers"
 
-set "GPU_STRATEGY=非专家权重上显存（%BGA_N% 层），专家留内存，单并发槽，KV %BGA_KVNAME%"
+set "GPU_STRATEGY=非专家权重上显存（%BGA_N%/%GPU_NLAYER% 层），专家上显存 %BGA_EXPERT_GPU% 层 + 留内存 %BGA_NCMOE% 层，单并发槽，KV %BGA_KVNAME%"
 
-set "GPU_STRATEGY_EN=non-expert weights on GPU：%BGA_N% layers / experts in RAM / 1 slot / KV %BGA_KVNAME%"
+set "GPU_STRATEGY_EN=non-expert on GPU（%BGA_N%/%GPU_NLAYER%）/ expert layers: %BGA_EXPERT_GPU% on GPU + %BGA_NCMOE% in RAM / 1 slot / KV %BGA_KVNAME%"
 
 set "GPU_LOWNOTE="
 
@@ -2970,6 +2989,38 @@ set /a BGA_KVUSED=%BGA_KVQ8%
 set "BGA_KVQ=--cache-type-k q8_0 --cache-type-v q8_0"
 
 set "BGA_KVNAME=q8_0"
+
+exit /b 0
+
+:BGA_MOE_CALC
+
+REM 子程序：用「可给权重」里没被非专家用掉的部分，推导能把几层专家放上显存。
+
+REM 入参（环境里）：BGA_N / BGA_AVAIL / GPU_LAYER_MIB / GPU_EXPERT_LAYER_MIB / GPU_NLAYER。
+
+REM 出参：BGA_EXPERT_GPU（上显存的专家层数）/ BGA_NCMOE（留内存的专家层数 = --n-cpu-moe 的值）。
+
+REM 只有非专家权重已压满 GPU_NLAYER 层时才可能有余量给专家；否则专家全留 CPU。
+
+set /a BGA_EXPERT_GPU=0
+
+set /a BGA_NCMOE=%GPU_NLAYER%
+
+if %BGA_N% LSS %GPU_NLAYER% exit /b 0
+
+set /a BGA_WUSED=%BGA_N% * %GPU_LAYER_MIB%
+
+set /a BGA_LEFT=%BGA_AVAIL% - %BGA_WUSED%
+
+if %BGA_LEFT% LSS %GPU_EXPERT_LAYER_MIB% exit /b 0
+
+set /a BGA_EXPERT_GPU=%BGA_LEFT% / %GPU_EXPERT_LAYER_MIB%
+
+if %BGA_EXPERT_GPU% GTR %GPU_NLAYER% set /a BGA_EXPERT_GPU=%GPU_NLAYER%
+
+set /a BGA_NCMOE=%GPU_NLAYER% - %BGA_EXPERT_GPU%
+
+if %BGA_NCMOE% LSS 0 set /a BGA_NCMOE=0
 
 exit /b 0
 

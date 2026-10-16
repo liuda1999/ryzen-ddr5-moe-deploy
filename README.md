@@ -23,7 +23,7 @@
 [![Hardware](https://img.shields.io/badge/hardware-Ryzen%20%2B%20DDR5-red)](#二为什么核心是-ryzen--ddr5expo)
 [![Backend](https://img.shields.io/badge/backend-llama.cpp%20CUDA%2FCPU-green)](https://github.com/ggml-org/llama.cpp)
 [![Goal](https://img.shields.io/badge/goal-25%20token%2Fs-success)](#四快速开始)
-[![Release](https://img.shields.io/badge/release-0.2.8-orange)](../../releases)
+[![Release](https://img.shields.io/badge/release-0.2.9-orange)](../../releases)
 [![License](https://img.shields.io/badge/license-%E9%9D%9E%E5%95%86%E4%B8%9A%E6%8E%88%E6%9D%83%20%7C%20Non--Commercial-d43f3f)](LICENSE)
 
 > **授权声明 / License**：本项目**源码公开**，可自由阅读、修改并用于**个人与非商业**用途；
@@ -215,6 +215,9 @@ Get-CimInstance Win32_PhysicalMemory |
 
 > 显存越大越快的原因、各容量的启动参数与估算依据见
 > [`参数阶梯手册_TierManual.md`](参数阶梯手册_TierManual.md) 的「GPU 混合卸载」章节。
+> 机制一句话：非专家权重先压满 40 层，**剩余的显存自动用来把「专家层」也搬上显存**
+> （`--n-cpu-moe K`，K 由显存余量算出）—— 显存越大、上显存的专家越多、生成越快
+> （8 / 12 / 16 GB 大致对应 约 8 / 16 / 24 层专家）。
 
 ---
 
@@ -551,11 +554,15 @@ python _维护脚本\gen_check.py     :: 重新生成 环境检查_EnvCheck.bat
    **显存预算已改为逐项实测标定**（0.2.6）：启动时读取显卡总量与**其它程序已占用**，
    再扣掉计算缓冲/CUDA 上下文、视觉塔（载 mmproj 时）、KV（按上下文与 KV 精度算）
    与**安全垫**，剩下的才给权重 —— 并在启动信息里完整打印，便于核对。
-   安全垫由 `GPU_SAFETY_MIB` 控制（默认 128 MiB，调大更保险、层数会少几层）。
+   安全垫由 `GPU_SAFETY_MIB` 控制（默认 96 MiB，调大更保险、层数会少几层）。
    另外 KV 精度按预算自动决定：f16 装不下就换 q8_0（32K 省约 320 MiB，代价约 0.7% 速度）。
    **中端显存带（8/12/16G）固定走 q8_0 KV 且视觉塔常驻**：这类卡用 f16 也能上满 40 层，
-   换 q8 只为在 96K/128K 高上下文多留显存余量、并保视觉塔不被挤掉（层数不变，速度等价）。
-   **别只把它当省显存的手段** —— 64K 档在 3 GB 卡上换 q8_0 后层数能从 24 顶到 40，
+   换 q8 只为在 96K/128K 高上下文多留显存余量、并保视觉塔不被挤掉。
+   **非专家权重压满 40 层后，剩余显存会全部拿来把「专家层」也搬上显存**
+   （`--n-cpu-moe K`，K 越小上显存的专家越多）：显存越大 K 越小、生成越快 —— 这正是
+   「同 CPU / DDR5 下，大显存换更快 token」的着力点。8 / 12 / 16 GB 大致把
+   **约 8 / 16 / 24 层**专家搬上显存（启动信息里的 `GPU_STRATEGY` 行会打印实际值）。
+   **别只把 q8 当省显存的手段** —— 64K 档在 3 GB 卡上换 q8_0 后层数能从 24 顶到 40，
    实测生成 **7.50 → 11.27 t/s（+50%）**；真正的杠杆是「多上几层」，不是 KV 精度本身。
    不想载视觉塔（省约 320 MiB 显存 + 约 800 MiB 共享内存）可把顶部 `MMPROJ_SW` 设为 `off`。
    另外 `--fit on` **不能**与 `--cpu-moe` 同用（会让 llama.cpp 放弃适配后
