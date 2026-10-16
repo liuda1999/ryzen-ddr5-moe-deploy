@@ -341,15 +341,27 @@ if not defined PPID set "PSTATE=free"
 exit /b 0
 
 :TIER_LINE
+REM 判定口径与启动脚本的 :MEM_CHECK 完全一致（别各说各话）：
+REM   总内存 < 需求        -> 不可用（启动脚本会直接拦下）
+REM   可用内存 < 需求/2    -> 不可用（必然大量换页，启动脚本也拦）
+REM   可用内存 < 需求      -> 紧张（启动脚本只警告，仍然允许跑）
+REM   否则                 -> 可用
+REM 之所以用「总内存」做硬门槛：档位表上的 16G/32G 说的就是机器总内存，
+REM 而模型是 mmap 的、不必一次性全驻留。只看可用内存会把 96K/128K 误报成不可用。
 set /a NEED=%~5 * 1024
-set /a WARNLVL=%NEED% * 12 / 10
-if %FREE_MB% LSS %NEED% (
-  echo         不可用/NOT OK 档位/tier %~1 %~2  %~3 ctx / %~4 线程/threads  需/needs %~5 GB  内存不足 / not enough RAM
+set /a HALF=%NEED% / 2
+set /a TOTAL_MB=%TOTAL_GB% * 1024
+if %TOTAL_MB% LSS %NEED% (
+  echo         [不可用/NOT OK] 档位/tier %~1 %~2  %~3 ctx / %~4 线程/threads  需/needs %~5 GB  总内存不足 / not enough total RAM
 ) else (
-  if %FREE_MB% LSS %WARNLVL% (
-    echo         紧张/TIGHT 档位/tier %~1 %~2  %~3 ctx / %~4 线程/threads  需/needs %~5 GB
+  if %FREE_MB% LSS %HALF% (
+    echo         [不可用/NOT OK] 档位/tier %~1 %~2  %~3 ctx / %~4 线程/threads  需/needs %~5 GB  可用内存过低 / free RAM too low
   ) else (
-    echo         可用/OK   档位/tier %~1 %~2  %~3 ctx / %~4 线程/threads  需/needs %~5 GB
+    if %FREE_MB% LSS %NEED% (
+      echo         [紧张/TIGHT]    档位/tier %~1 %~2  %~3 ctx / %~4 线程/threads  需/needs %~5 GB  仍可启动但会吃紧 / starts, but tight
+    ) else (
+      echo         [可用/OK]       档位/tier %~1 %~2  %~3 ctx / %~4 线程/threads  需/needs %~5 GB
+    )
   )
 )
 exit /b 0

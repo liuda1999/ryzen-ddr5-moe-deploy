@@ -822,8 +822,8 @@ echo   说明 / NOTE
 echo   配置/SETUP     16G 内存 + 4G 以上显存 → IQ3_S，最多 64K 上下文
 echo                  32G 内存（16G*2 双通道）→ Q4_K_M，最多 64K 上下文
 echo                  32G 内存 + 8G 以上显存 → Q4_K_M 及以上，64K 以上上下文
-echo   速度/SPEED     短对话约 24 t/s，填满后随长度缓降 / short chat ~24 t/s, drops as ctx fills
-echo                  32K 填满约 20、64K 填满约 12 / ~20 at 32K, ~12 at 64K
+echo   速度/SPEED     短对话约 21~24 t/s，填满后随长度缓降 / short chat ~21-24 t/s, drops as ctx fills
+echo                  32K 填满约 20、64K 填满约 11 t/s / ~20 at 32K, ~11 at 64K
 echo   线程/THREAD    全部档位均为 24 线程 / 24 threads for every tier
 echo   空闲/IDLE      无任务 2 小时后释放内存，下次对话自动重载 / frees RAM after 2h idle, reloads on next request
 echo   手册/MANUAL    详见/see 参数阶梯手册_TierManual.md
@@ -2909,7 +2909,17 @@ set /a BGA_N=%BGA_AVAIL% / %GPU_LAYER_MIB%
 
 set /a BGA_KVUSED=%BGA_KVF16%
 
-if %BGA_N% GEQ %GPU_NLAYER% exit /b 0
+REM 到层数上限就收工。**注意必须先封顶再返回**：上层要用 BGA_N 比较
+REM 「省下视觉塔能多上几层」，若不封顶，大显存卡上算出来的是
+REM 766 与 790 这种远超上限的数，差值恒 ≥ 阈值 → 会把视觉塔误关掉。
+
+if %BGA_N% LSS %GPU_NLAYER% goto :BGA_CALC_TRY_Q8
+
+set /a BGA_N=%GPU_NLAYER%
+
+exit /b 0
+
+:BGA_CALC_TRY_Q8
 
 REM 还没到层数上限 —— 再算一遍 q8_0（KV 减半）。小显存卡上这通常能多装 8 层左右，
 
