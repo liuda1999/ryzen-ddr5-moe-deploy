@@ -549,7 +549,7 @@ for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "[math]::Round
 
 echo   内存占用/MEM   %SRV_MEM% GB
 
-echo   配置档位/TIER   %CUR_TIER_NAME% （上下文/ctx %CUR_CTX% / 线程/threads %CUR_T%）
+echo   配置档位/TIER   %CUR_TIER_NAME% （上下文/ctx %CUR_CTX% / 输出建议 max_tokens %CUR_OUT% / 线程/threads %CUR_T%）
 
 call :SHOW_CUR_THINK
 
@@ -606,6 +606,8 @@ if defined API_KEY (
   echo   访问密钥/APIKEY ^(未找到 %KEY_FILE%，局域网将无法通过鉴权^) / ^(key file missing, LAN calls will be rejected^)
 
 )
+
+echo   输出建议/MAX_OUT  %CUR_OUT%（上下文 %CUR_CTX% 的建议 max_tokens / suggested max_tokens）
 
 exit /b 0
 
@@ -685,7 +687,7 @@ echo   进程/PID       %SRV_PID%
 
 echo   内存占用/MEM   %SRV_MEM% GB
 
-echo   配置档位/TIER   %CUR_TIER_NAME% （上下文/ctx %CUR_CTX% / 线程/threads %CUR_T%）
+echo   配置档位/TIER   %CUR_TIER_NAME% （上下文/ctx %CUR_CTX% / 输出建议 max_tokens %CUR_OUT% / 线程/threads %CUR_T%）
 
 call :SHOW_CUR_THINK
 
@@ -811,13 +813,13 @@ echo.
 echo ------------------------------------------------------------
 echo   请选择配置档位 / Choose a tier
 echo ------------------------------------------------------------
-echo   档位/TIER               上下文/CTX  IQ3_S 内存    Q4 内存
-echo   1  实用档/Practical            16K  16G           24G
-echo   2  长文档档/Long doc           24K  16G           24G
-echo   3  超长档/Extended             32K  16G           24G
-echo   4  长上下文档/Big ctx          64K  16G           24G
-echo   5  超大档/Very big             96K  17G           25G
-echo   6  极限档/Maximum             128K  17G           25G
+echo   档位/TIER              上下文/CTX  输出建议/max  IQ3_S 内存  Q4 内存
+echo   1  实用档/Practical          16K       4096      16G        24G
+echo   2  长文档档/Long doc         24K       6144      16G        24G
+echo   3  超长档/Extended           32K       8192      16G        24G
+echo   4  长上下文档/Big ctx        64K      16384      16G        24G
+echo   5  超大档/Very big           96K      24576      17G        25G
+echo   6  极限档/Maximum           128K      32768      17G        25G
 echo   0  退出 / Exit
 echo ------------------------------------------------------------
 echo   说明 / NOTE
@@ -873,7 +875,7 @@ echo   是否开启深度思考（推理链）？/ Enable deep thinking ^(reason
 
 echo ============================================================
 
-echo   已选档位/TIER：%TIER_NAME%      %CTX% 上下文/ctx / %THREADS% 线程/threads
+echo   已选档位/TIER：%TIER_NAME%      %CTX% 上下文/ctx / 输出建议 max_tokens %OUT% / %THREADS% 线程/threads
 
 echo.
 
@@ -1265,7 +1267,7 @@ echo   启动成功/STARTED，服务已就绪 / service is ready
 
 echo ============================================================
 
-echo   档位/TIER      %TIER_NAME%（上下文/ctx %CTX% / 线程/threads %THREADS%）
+echo   档位/TIER      %TIER_NAME%（上下文/ctx %CTX% / 输出建议 max_tokens %OUT% / 线程/threads %THREADS%）
 
 call :SHOW_THINK
 
@@ -1384,33 +1386,31 @@ REM ============================================================
 
 :SHOW_API_BLOCK
 
-echo ------------------------------------------------------------
+echo ============================================================
 
-echo   ★ 本次服务 API / Service API（在下次重启服务前一直有效 / valid until next restart）
+echo       ★  服务地址与密钥  /  ENDPOINT + KEY
 
-echo ------------------------------------------------------------
+echo ============================================================
 
-if defined LAN_IP echo   局域网地址   http://%LAN_IP%:%PORT%/v1
+if defined LAN_IP echo       局域网/LAN     http://%LAN_IP%:%PORT%/v1
 
-if not defined LAN_IP echo   局域网地址   ^(未检测到局域网 IPv4^)
+if not defined LAN_IP echo       局域网/LAN     （未检测到局域网 IPv4）
 
-echo   本机地址/LOCAL     http://127.0.0.1:%PORT%/v1
+echo       本机  /LOCAL   http://127.0.0.1:%PORT%/v1
 
-echo   访问密钥/APIKEY    %API_KEY%
+echo       密钥  /KEY     %API_KEY%
 
-echo.
+echo ============================================================
 
-echo   OpenAI 兼容客户端这样填 / Fill in your client like this：
+echo   客户端填法/CLIENT   Base URL=上面地址  API Key=上面密钥  Model 留空
 
-echo     接口地址 / Base URL  =  上面任一地址 / any address above
+echo   输出/max_tokens     %OUT%（本档位 ctx %CTX% 的建议值 / suggested for this tier）
 
-echo     API Key              =  上面这串密钥 / the key above
-
-echo     模型名 / Model        =  留空即可 / leave empty（单模型服务/single-model server）
+echo   注意/NOTE           密钥区分大小写、勿加 sk- 前缀；只认 Authorization 请求头
 
 echo.
 
-echo   curl 示例 / Example：
+echo   curl 示例：
 
 echo     curl -H "Authorization: Bearer %API_KEY%" \
 
@@ -1420,13 +1420,7 @@ echo          -H "Content-Type: application/json" \
 
 echo          -d "{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
 
-echo.
-
-echo   注意/NOTE：密钥区分大小写、不要加 sk- 前缀 / key is case-sensitive, no sk- prefix;
-
-echo         服务只认请求头 Authorization / header auth only，不支持 ?api_key= 查询参数 / no query-param key.
-
-echo ------------------------------------------------------------
+echo ============================================================
 
 call :COPY_KEY
 
@@ -1714,17 +1708,17 @@ REM ============================================================
 
 set "CTX="
 
-if "%TIER%"=="1" ( set "CTX=16384"  & set "THREADS=24" & set "TIER_NAME=实用档"     & set "NEED_GB=24" )
+if "%TIER%"=="1" ( set "CTX=16384"  & set "THREADS=24" & set "OUT=4096"  & set "TIER_NAME=实用档"     & set "NEED_GB=24" )
 
-if "%TIER%"=="2" ( set "CTX=24576"  & set "THREADS=24" & set "TIER_NAME=长文档档"   & set "NEED_GB=24" )
+if "%TIER%"=="2" ( set "CTX=24576"  & set "THREADS=24" & set "OUT=6144"  & set "TIER_NAME=长文档档"   & set "NEED_GB=24" )
 
-if "%TIER%"=="3" ( set "CTX=32768"  & set "THREADS=24" & set "TIER_NAME=超长档"     & set "NEED_GB=25" )
+if "%TIER%"=="3" ( set "CTX=32768"  & set "THREADS=24" & set "OUT=8192"  & set "TIER_NAME=超长档"     & set "NEED_GB=25" )
 
-if "%TIER%"=="4" ( set "CTX=65536"  & set "THREADS=24" & set "TIER_NAME=长上下文档" & set "NEED_GB=25" )
+if "%TIER%"=="4" ( set "CTX=65536"  & set "THREADS=24" & set "OUT=16384" & set "TIER_NAME=长上下文档" & set "NEED_GB=25" )
 
-if "%TIER%"=="5" ( set "CTX=98304"  & set "THREADS=24" & set "TIER_NAME=超大档"     & set "NEED_GB=26" )
+if "%TIER%"=="5" ( set "CTX=98304"  & set "THREADS=24" & set "OUT=24576" & set "TIER_NAME=超大档"     & set "NEED_GB=26" )
 
-if "%TIER%"=="6" ( set "CTX=131072" & set "THREADS=24" & set "TIER_NAME=极限档"     & set "NEED_GB=26" )
+if "%TIER%"=="6" ( set "CTX=131072" & set "THREADS=24" & set "OUT=32768" & set "TIER_NAME=极限档"     & set "NEED_GB=26" )
 
 exit /b 0
 
@@ -2337,6 +2331,10 @@ if "%CUR_TIER%"=="4" set "CUR_TIER_NAME=长上下文档"
 if "%CUR_TIER%"=="5" set "CUR_TIER_NAME=超大档"
 
 if "%CUR_TIER%"=="6" set "CUR_TIER_NAME=极限档"
+
+REM 输出建议 = 上下文 ÷ 4（与 :APPLY_TIER 的 OUT 同口径），供 status 显示 / 填客户端 max_tokens
+
+if defined CUR_CTX set /a CUR_OUT=%CUR_CTX% / 4
 
 exit /b 0
 
