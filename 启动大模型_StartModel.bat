@@ -2729,6 +2729,17 @@ if /i "%GPU_MODE%"=="manual" goto :BGA_MANUAL
 
 REM ---------- auto ----------
 
+REM 中端显存带（8/12/16G：约 7600~17500 MiB）专用策略：KV 强制 q8_0、视觉塔常驻（开）。
+REM 这些卡用 f16 本就能上满 40 层，但 q8 在 96K/128K 高上下文留更多余量、
+REM 并保证视觉塔不被挤掉；层数不变（模型只有 40 层），生成速度等价。
+REM 覆盖范围：8/10/12/16G。6G 及以下、20G 及以上不在带内，维持原有 f16 逻辑。
+set "BGA_FORCE_Q8="
+set "BGA_MMPROJ_FORCE="
+if %GPU_TOTAL_MIB% GEQ 7600 if %GPU_TOTAL_MIB% LEQ 17500 (
+  set "BGA_FORCE_Q8=1"
+  set "BGA_MMPROJ_FORCE=1"
+)
+
 REM 这里刻意不用 --fit，原因见下方注释；改为自己按显存余量算卸几层。
 
 REM
@@ -2808,6 +2819,8 @@ REM 多出 GPU_MMPROJ_MIN_GAIN 层以上，就自动不载（文字场景优先速度），
 REM 并在启动信息里说明；必须处理图片就把 MMPROJ_SW 设成 on 强制载入。
 
 if /i not "%MMPROJ_SW%"=="auto" goto :BGA_MMP_DECIDED
+
+if defined BGA_MMPROJ_FORCE goto :BGA_MMP_DECIDED
 
 if "%BGA_MMPROJ%"=="0" goto :BGA_MMP_DECIDED
 
@@ -2891,6 +2904,10 @@ set /a BGA_N=%BGA_AVAIL% / %GPU_LAYER_MIB%
 
 set /a BGA_KVUSED=%BGA_KVF16%
 
+REM 中端显存带强制 q8_0（:BUILD_GPU_ARGS 里设的 BGA_FORCE_Q8）：层数本就压满 40，
+REM 走专用支路直接按 q8 KV 算，省得再跟 f16 比来比去。
+if defined BGA_FORCE_Q8 goto :BGA_CALC_FORCE_Q8
+
 REM 到层数上限就收工。**注意必须先封顶再返回**：上层要用 BGA_N 比较
 REM 「省下视觉塔能多上几层」，若不封顶，大显存卡上算出来的是
 REM 766 与 790 这种远超上限的数，差值恒 ≥ 阈值 → 会把视觉塔误关掉。
@@ -2899,6 +2916,15 @@ if %BGA_N% LSS %GPU_NLAYER% goto :BGA_CALC_TRY_Q8
 
 set /a BGA_N=%GPU_NLAYER%
 
+exit /b 0
+
+:BGA_CALC_FORCE_Q8
+set /a BGA_AVAIL=%GPU_TOTAL_MIB% - %GPU_OTHER_MIB% - %GPU_FIXED_MIB% - %BGA_MMPROJ% - %BGA_KVQ8% - %GPU_SAFETY_MIB%
+set /a BGA_N=%BGA_AVAIL% / %GPU_LAYER_MIB%
+if %BGA_N% GTR %GPU_NLAYER% set /a BGA_N=%GPU_NLAYER%
+set /a BGA_KVUSED=%BGA_KVQ8%
+set "BGA_KVQ=--cache-type-k q8_0 --cache-type-v q8_0"
+set "BGA_KVNAME=q8_0"
 exit /b 0
 
 :BGA_CALC_TRY_Q8
