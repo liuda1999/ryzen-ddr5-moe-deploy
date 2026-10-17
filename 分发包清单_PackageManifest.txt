@@ -1,8 +1,8 @@
 ================================================================================================
 Qwen3.6-35B 本地大模型 —— 分发包清单
 ================================================================================================
-生成时间：2026-10-17 16:37:26
-源目录  ：E:\llm-cpp-v04
+生成时间：2026-10-17 18:49:21
+源目录  ：E:\llm-cpp
 文件数  ：69      总大小：20.68 GB（20.68 GB）
 
 格式说明：每行三列，用 Tab 分隔 —— 相对路径 / 精确字节数 / SHA256。
@@ -29,7 +29,7 @@ Git 仓库说明：
 启动大模型_StartModel.bat	91037	acc9d50a7f55007236bf95f4314aea5f8dc7588a2556861d70d92b3866ff0bec
 环境检查_EnvCheck.bat	22640	4e58447cbe90ba4465169e629dccdb55cfc6302034aaa3d074956fb3343438f6
 开放局域网端口_OpenLanPort.bat	3439	c14d344b4b16df17a404199c94ca98024ccd9498f0c4bbbb235227286038e617
-README.md	23296	a8f8ecee52c8c1c0cf87e23ac823df92fed1d451daf412b81c3aa82ddf1f6ceb
+README.md	23936	ff5ca8c2d94e09eb20329c9364c650a5ad9c3191436385a599858b00dbb530e8
 使用说明_UserGuide.md	30144	23c7fcd8d6544721ea4a110164d5dc9e971763096cf8b6b21be302724c2c6654
 参数阶梯手册_TierManual.md	26289	b0afc7305a2a3bbc6b58d65e2a2b163825dbdaa6d6b336b6956439b94808ac33
 部署说明_DeployNotes.txt	30472	5bd11feb367b622e1ec35e1209b809197d06666eb526159a02c1f5df19a2ad92
@@ -57,7 +57,7 @@ llama.cpp\build-zen5\bin\ggml-cpu-sandybridge.dll	1074176	8d4eb469c25b6264b9f190
 llama.cpp\build-zen5\bin\ggml-cpu-skylakex.dll	1172480	9f82e50bd2a4d40d679e85191decafc6c10efadc07e1795a7882d6998c37b2c8
 llama.cpp\build-zen5\bin\ggml-cpu-sse42.dll	840192	7c1b8902f19d580cb614662c469d8c97ac12ebfafe786c6480d6d594fd82383e
 llama.cpp\build-zen5\bin\ggml-cpu-x64.dll	841216	16dc63f8e90471ddf784c09a35398be00cbe9b23c32f5e8d0db1d78c85d19609
-*llama.cpp\build-zen5\bin\ggml-cuda.dll	33605120	a7ca4c27ecda459d6fb56edcf275d5780ea46eb223636183327f87e0a959558b
+*llama.cpp\build-zen5\bin\ggml-cuda.dll	33604608	8c2b9ee994450811a35ae1da5c37694a1588bc12821aa2ab75d5a6ac0741fca1
 llama.cpp\build-zen5\bin\ggml.dll	60416	d8e90c39b9445c5694907f86c70b42d3fd6ff09f469b0fccfc55a15fbd79715b
 llama.cpp\build-zen5\bin\llama-batched-bench-impl.dll	131072	a40a5d81b7f88def2def9eff3f433b842f7031bb62cc298c40212bd73091684e
 llama.cpp\build-zen5\bin\llama-batched-bench.exe	10752	3defa940eeb8b5580890881ee714072fba736c4ad7961a2dec37fcb34a48a8d2

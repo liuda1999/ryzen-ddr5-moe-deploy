@@ -22,7 +22,7 @@
 [![Hardware](https://img.shields.io/badge/hardware-Ryzen%20%2B%20DDR5-red)](#二原理与实测规律)
 [![Backend](https://img.shields.io/badge/backend-llama.cpp%20CUDA%2FCPU-green)](https://github.com/ggml-org/llama.cpp)
 [![Goal](https://img.shields.io/badge/goal-25%20token%2Fs-success)](#六档位与速度)
-[![Release](https://img.shields.io/badge/release-0.3.1-orange)](../../releases)
+[![Release](https://img.shields.io/badge/release-0.3.2-orange)](../../releases)
 [![License](https://img.shields.io/badge/license-%E9%9D%9E%E5%95%86%E4%B8%9A%E6%8E%88%E6%9D%83%20%7C%20Non--Commercial-d43f3f)](LICENSE)
 
 > **授权声明 / License**：源码公开，可自由阅读、修改并用于**个人与非商业**用途；
@@ -30,6 +30,16 @@
 > 详见 [`LICENSE`](LICENSE)。**Commercial use requires prior written permission from the author.**
 
 ---
+
+## 0.3.2 补丁更新
+
+| 项 | 内容 |
+|---|---|
+| **修 CUDA 后端编译脚本卡死** | `_维护脚本\build-cuda-backend.bat` 里 `cl.exe` 不带参数时会读标准输入、**永久不返回**（实测卡住 12 分钟）。改为 `cl.exe /? 2>&1 < nul`，打印版本即退出 |
+| **验证** | 修复后同一脚本完整构建 **5 分 18 秒**，输出 `BUILD_OK` 并产出 `ggml-cuda.dll` |
+
+> **仅维护脚本修复，运行时代码、参数与档位与 0.3.1 完全相同**，不需要重新标定。
+> 普通使用（CPU 或"下载现成 dll"）碰不到这个问题；只有自己编译 CUDA 后端才会触发。
 
 ## 0.3.1 主要更新
 
