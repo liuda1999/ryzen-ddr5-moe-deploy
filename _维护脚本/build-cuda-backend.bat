@@ -39,7 +39,9 @@ set "INCLUDE=%MSVC%\include;%SDK%\Include\%SDKVER%\ucrt;%SDK%\Include\%SDKVER%\s
 set "LIB=%MSVC%\lib\x64;%SDK%\Lib\%SDKVER%\ucrt\x64;%SDK%\Lib\%SDKVER%\um\x64"
 
 echo == compiler ==
-cl.exe 2>&1 | findstr /C:"Version"
+REM cl.exe with no arguments reads stdin and never returns (hung for 12 min
+REM in testing). Always pass /? and redirect < nul so it prints and exits.
+cl.exe /? 2>&1 < nul | findstr /C:"Version"
 echo == cuda ==
 nvcc.exe --version | findstr /C:"release"
 
