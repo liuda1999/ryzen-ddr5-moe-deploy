@@ -241,17 +241,19 @@ set "GPU_MODE=off"
 | 参数 | 默认 | 含义 |
 | --- | --- | --- |
 | `GPU_MIN_FREE_MIB` | 1536 | 空闲显存低于此值直接退回纯 CPU |
-| `GPU_FIXED_MIB` | 440 | 计算缓冲 + CUDA 上下文（不含 KV） |
+| `GPU_FIXED_MIB` | 600 | 计算缓冲 + CUDA 上下文（不含 KV）。按 `-ub 1024` 标定（ub512 约 413，ub1024 再 +146\~160） |
 | `GPU_SAFETY_MIB` | 96 | 安全垫（调大更保险、层数会少几层） |
 | `GPU_LAYER_MIB` | 40 | 每层「非专家权重」的保守估算 |
 | `GPU_EXPERT_LAYER_MIB` | 500 | 每层「MoE 专家权重」的保守估算 |
 | `GPU_NLAYER` | 40 | 层数上限（给算出的层数封顶） |
+| `UB` | 1024 | 物理批 `-ub`。实测 1024 比默认 512 的预填充快 **38%**、解码不变、显存 +146 MiB；再上 2048 反而 **-10%** |
+| `FA` | on | Flash Attention `-fa`。实测对预填充贡献在噪声内，主要价值是省 KV 显存；加载失败改成 `off` 或 `auto` |
 
 ```
 可给权重 = 总显存 - 其它程序 - GPU_FIXED_MIB - 视觉塔 - KV - GPU_SAFETY_MIB
 非专家层数 N = 可给权重 / GPU_LAYER_MIB                     （取整，不超过 GPU_NLAYER）
 专家上显存层数 E = (可给权重 - N × GPU_LAYER_MIB) / GPU_EXPERT_LAYER_MIB   （仅当 N 压满时）
-实际参数 = --n-gpu-layers N [ --n-cpu-moe (GPU_NLAYER - E) | --cpu-moe ] --parallel 1
+实际参数 = --n-gpu-layers N [ --n-cpu-moe (GPU_NLAYER - E) | --cpu-moe ] --parallel 1 -ub 1024 -fa on
            （E=0 用 --cpu-moe；E=GPU_NLAYER 则两者都不加，专家全上显存）
 ```
 

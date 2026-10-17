@@ -193,6 +193,7 @@
                         （=40），再把剩余显存用来上专家层：
                         E = (可给权重 - N×40) ÷ GPU_EXPERT_LAYER_MIB（=500）；
                         参数为 --n-gpu-layers N [--n-cpu-moe (40-E) | --cpu-moe] --parallel 1
+                        -ub 1024 -fa on（UB 见下：实测预填充 +38%）
                         （按总显存算而不是按空闲值，因为 llama.cpp 报的 free
                           额外扣了一份保留量，用它算会少卸好几层）
       - GPU_MODE=off    强制纯 CPU（与旧版逐字节一致，仍传 --n-gpu-layers 0）

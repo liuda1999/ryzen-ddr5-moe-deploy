@@ -207,6 +207,17 @@ set "MOE_CACHE_MIB="      REM 专家显存缓存 MiB，0/留空=不用
 
 set "KV_OFFLOAD="         REM on / off；off = KV 留内存（省显存，适合小显存卡）
 
+REM 性能参数（统一，不分显存档位）—— 依据 2026-10-17 在 GTX 1060 3GB 上的实测：
+
+REM   UB = 物理批大小（-ub）。512→1024：预填充 177.9 → 246.3 t/s（+38%）、解码 23.28 → 23.31
+REM        （不变）、显存 +146 MiB；再上 2048 反而掉到 222.7（-10%）。故统一 1024。
+REM        注意：改大 UB 必须同步调大 GPU_FIXED_MIB，否则层数会算多 → 越界分页（暴跌）。
+set "UB=1024"
+
+REM   FA = Flash Attention（on / off / auto）。本机实测对预填充的贡献在噪声内（175.7 vs 177.9），
+REM        主要价值是省 KV 显存；现代卡可能更明显。老架构/头维度不支持导致加载失败时改成 off。
+set "FA=on"
+
 REM auto 模式的参数（MiB）—— 取值来自 2026-10-16 在 GTX 1060 3GB 上做的
 
 REM 「层数 × 显存 × 速度」扫掠实测（32K 档、--cpu-moe、24 线程）：
@@ -233,7 +244,7 @@ set "GPU_LAYER_MIB=40"        REM 每层「非专家权重」≈40 MiB（实测 39.6：41 层共
 
 set "GPU_EXPERT_LAYER_MIB=500" REM 每层「MoE 专家权重」≈500 MiB（Q4_K_M 实测单层 432~498 MiB，取最大 498 上取整，防越界分页）
 
-set "GPU_FIXED_MIB=440"       REM 计算缓冲 + CUDA 上下文（不含 KV；40 层满载实测 约413，取 440）
+set "GPU_FIXED_MIB=600"       REM 计算缓冲 + CUDA 上下文（不含 KV）。按 UB=1024 标定：ub512 时实测约 413，ub1024 实测 +146~160 → 约 573，取 600
 
 set "GPU_SAFETY_MIB=96"       REM 安全垫：留出余量，驱动就不必回收 llama 的页（调大更保险、更慢）
 
@@ -1097,7 +1108,7 @@ REM auto 模式判定「视觉塔不划算」时也要真的不传 --mmproj（见 :BUILD_GPU_ARGS）
 
 if "%BGA_MMPROJ_AUTOOFF%"=="1" set "MMPROJ_PS="
 
-powershell -NoProfile -Command "$q=[char]34; $c='cmd /c ' + $q + $q + '%SERVER_EXE%' + $q + ' --model ' + $q + '%MODEL%' + $q + %MMPROJ_PS% ' --host %HOST% --port %PORT% --api-key %API_KEY% --reasoning %THINK% --ctx-size %CTX% --threads %THREADS% --threads-batch %THREADS% --sleep-idle-seconds %IDLE_SLEEP_SEC% %GPU_ARGS% < nul > ' + $q + '%LOG_FILE%' + $q + ' 2>&1' + $q; (New-Object -ComObject WScript.Shell).Run($c, 0, $false)"
+powershell -NoProfile -Command "$q=[char]34; $c='cmd /c ' + $q + $q + '%SERVER_EXE%' + $q + ' --model ' + $q + '%MODEL%' + $q + %MMPROJ_PS% ' --host %HOST% --port %PORT% --api-key %API_KEY% --reasoning %THINK% --ctx-size %CTX% --threads %THREADS% --threads-batch %THREADS% --sleep-idle-seconds %IDLE_SLEEP_SEC% -ub %UB% -fa %FA% %GPU_ARGS% < nul > ' + $q + '%LOG_FILE%' + $q + ' 2>&1' + $q; (New-Object -ComObject WScript.Shell).Run($c, 0, $false)"
 
 
 
