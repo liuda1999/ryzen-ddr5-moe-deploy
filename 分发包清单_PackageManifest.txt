@@ -1,7 +1,7 @@
 ================================================================================================
 Qwen3.6-35B 本地大模型 —— 分发包清单
 ================================================================================================
-生成时间：2026-10-17 11:37:57
+生成时间：2026-10-17 12:32:42
 源目录  ：E:\llm-cpp
 文件数  ：70      总大小：33.42 GB（33.42 GB）
 
@@ -29,9 +29,9 @@ Git 仓库说明：
 启动大模型_StartModel.bat	89622	72fd3c2dbe2322b526faa9855be2915e75ad79023986bec2c3eb4c9c0d4ed8fc
 环境检查_EnvCheck.bat	22640	4e58447cbe90ba4465169e629dccdb55cfc6302034aaa3d074956fb3343438f6
 开放局域网端口_OpenLanPort.bat	3439	c14d344b4b16df17a404199c94ca98024ccd9498f0c4bbbb235227286038e617
-README.md	42041	947a0d72607a61e3a072b589f8c2ef0f7b418b9f2aea83cae961cb9fbba06068
-使用说明_UserGuide.md	29498	d3a170987f8c38706922d94e63876c0fefd4922d0a0bb7399674296b74d63274
-参数阶梯手册_TierManual.md	23661	cbcb2b67861a53d90cfbfe10c947201b26d736553708b925d03e0150bd9a364b
+README.md	22451	06d3b796dea97256987baea20a2e57f931161d8c6b7d2dc3e3ed06b5451d10aa
+使用说明_UserGuide.md	29911	36df3592ece5a44ba63df9f36db4384ad3101d683f19306102cbb4f63973999a
+参数阶梯手册_TierManual.md	24737	b2b5c3a0c8de9e6e48628e197d02d619f4ebf1d4e3c3d1005771d72ed4f6ffa7
 部署说明_DeployNotes.txt	30388	72de8a0ceaaeb566f1ce27de47d62f9815b78ced45242254508433199a69fc51
 LICENSE	8412	c24541876f408e13b9592a6447680cc71cfc32cd259cb1ae70e987ed8823cd88
 assets\logo.jpg	97226	f0a02c856fab635ae96011dd79e007775469c64c06a84ce6f9abe06f15b43589
@@ -40,7 +40,7 @@ assets\logo.jpg	97226	f0a02c856fab635ae96011dd79e007775469c64c06a84ce6f9abe06f15
 【2】根目录可选文件（按需带上）
 ------------------------------------------------------------------------------------------------
 *重新编译_Rebuild.bat	2606	682660bfd5de64b1688c83568d49cc0967c3ae5b53d12f7ffabf4685856655c9
-*验收报告_AcceptanceReport.md	68726	fb1681753e814280cff5a7c55c0c1cbe22f54604d1f56b1da39a51ef1d1f33b9
+*验收报告_AcceptanceReport.md	72192	88ee124a6dc3d0b27f30eb4244e220a83ce758ab2dea5382d1162add5fce60b7
 *llama.cpp\models\下载模型.md	6834	3c78dba4908739f5b9ae5a8c1b8eaf66ce50039409c3f9c1a92f326d2b6d26f2
 
 ------------------------------------------------------------------------------------------------
