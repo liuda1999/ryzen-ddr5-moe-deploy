@@ -420,7 +420,7 @@ echo [错误/ERROR] 未知参数：%~1 / unknown argument: %~1
 
 echo.
 
-echo 用法/USAGE：启动大模型_StartModel.bat [start^|stop^|restart^|status^|check^|menu] [档位/tier 1-6]
+echo 用法/USAGE：启动大模型_StartModel.bat [start^|stop^|restart^|status^|check^|menu] [档位/tier 1-7]
 
 echo.
 
@@ -825,20 +825,23 @@ echo ------------------------------------------------------------
 echo   请选择配置档位 / Choose a tier
 echo ------------------------------------------------------------
 echo   档位/TIER              上下文/CTX  输出建议/max  IQ3_S 内存  Q4 内存
-echo   1  实用档/Practical          16K       4096      16G        24G
-echo   2  长文档档/Long doc         24K       6144      16G        24G
-echo   3  超长档/Extended           32K       8192      16G        24G
-echo   4  长上下文档/Big ctx        64K      16384      16G        24G
-echo   5  超大档/Very big           96K      24576      17G        25G
-echo   6  极限档/Maximum           128K      32768      17G        25G
+echo   1  短任务档/Short task      32K       8192      16G        24G
+echo   2  中档/Medium             48K      12288      16G        24G
+echo   3  标准档/Standard         64K      16384      16G        24G
+echo   4  长文档档/Long doc        96K      24576      17G        25G
+echo   5  超长档/Extended        128K      32768      17G        25G
+echo   6  长上下文档/Big ctx      160K      40960      18G        26G
+echo   7  极限档/Maximum         192K      49152      18G        26G
 echo   0  退出 / Exit
 echo ------------------------------------------------------------
 echo   说明 / NOTE
-echo   配置/SETUP     16G 内存 + 4G 以上显存 → IQ3_S，最多 64K 上下文
-echo                  32G 内存（16G*2 双通道）→ Q4_K_M，最多 64K 上下文
-echo                  32G 内存 + 8G 以上显存 → Q4_K_M 及以上，64K 以上上下文
+echo   配置/SETUP     32K 是最低档（短任务 / 无 N 卡兜底）；内存定上限、显存定速度
+echo                  16G 内存 + 4G 以上显存 → IQ3_S，可到 64K
+echo                  32G 内存（16G*2 双通道）→ Q4_K_M，可到 64K
+echo                  64G 内存 → Q4_K_M 及以上，96K~192K 看显存
+echo                  推荐/recommended：8G→96K  12G→128K  16G→160K  24G+→192K
 echo   速度/SPEED     短对话约 21~24 t/s，填满后随长度缓降 / short chat ~21-24 t/s, drops as ctx fills
-echo                  32K 填满约 20、64K 填满约 11 t/s / ~20 at 32K, ~11 at 64K
+echo                  约每多填 1 千 token 慢 0.7 ms；30K 约 15 t/s，64K 填满约 11 t/s
 echo   线程/THREAD    全部档位均为 24 线程 / 24 threads for every tier
 echo   空闲/IDLE      无任务 2 小时后释放内存，下次对话自动重载 / frees RAM after 2h idle, reloads on next request
 echo   手册/MANUAL    详见/see 参数阶梯手册_TierManual.md
@@ -1719,17 +1722,19 @@ REM ============================================================
 
 set "CTX="
 
-if "%TIER%"=="1" ( set "CTX=16384"  & set "THREADS=24" & set "OUT=4096"  & set "TIER_NAME=实用档"     & set "NEED_GB=24" )
+if "%TIER%"=="1" ( set "CTX=32768"  & set "THREADS=24" & set "OUT=8192"  & set "TIER_NAME=短任务档"   & set "NEED_GB=24" )
 
-if "%TIER%"=="2" ( set "CTX=24576"  & set "THREADS=24" & set "OUT=6144"  & set "TIER_NAME=长文档档"   & set "NEED_GB=24" )
+if "%TIER%"=="2" ( set "CTX=49152"  & set "THREADS=24" & set "OUT=12288" & set "TIER_NAME=中档"       & set "NEED_GB=24" )
 
-if "%TIER%"=="3" ( set "CTX=32768"  & set "THREADS=24" & set "OUT=8192"  & set "TIER_NAME=超长档"     & set "NEED_GB=25" )
+if "%TIER%"=="3" ( set "CTX=65536"  & set "THREADS=24" & set "OUT=16384" & set "TIER_NAME=标准档"     & set "NEED_GB=24" )
 
-if "%TIER%"=="4" ( set "CTX=65536"  & set "THREADS=24" & set "OUT=16384" & set "TIER_NAME=长上下文档" & set "NEED_GB=25" )
+if "%TIER%"=="4" ( set "CTX=98304"  & set "THREADS=24" & set "OUT=24576" & set "TIER_NAME=长文档档"   & set "NEED_GB=25" )
 
-if "%TIER%"=="5" ( set "CTX=98304"  & set "THREADS=24" & set "OUT=24576" & set "TIER_NAME=超大档"     & set "NEED_GB=26" )
+if "%TIER%"=="5" ( set "CTX=131072" & set "THREADS=24" & set "OUT=32768" & set "TIER_NAME=超长档"     & set "NEED_GB=25" )
 
-if "%TIER%"=="6" ( set "CTX=131072" & set "THREADS=24" & set "OUT=32768" & set "TIER_NAME=极限档"     & set "NEED_GB=26" )
+if "%TIER%"=="6" ( set "CTX=163840" & set "THREADS=24" & set "OUT=40960" & set "TIER_NAME=长上下文档" & set "NEED_GB=26" )
+
+if "%TIER%"=="7" ( set "CTX=196608" & set "THREADS=24" & set "OUT=49152" & set "TIER_NAME=极限档"     & set "NEED_GB=26" )
 
 exit /b 0
 
@@ -1743,12 +1748,13 @@ REM ============================================================
 
 :SHOW_TIER_FIT
 echo   当前机器/total %TOTAL_GB% GB，可用/free %FREE_GB% GB，本模型 "%MODEL_LABEL%" 下的档位情况 / tiers that fit：
-call :FIT_LINE 1 实用档     16384
-call :FIT_LINE 2 长文档档   24576
-call :FIT_LINE 3 超长档     32768
-call :FIT_LINE 4 长上下文档 65536
-call :FIT_LINE 5 超大档     98304
-call :FIT_LINE 6 极限档     131072
+call :FIT_LINE 1 短任务档   32768
+call :FIT_LINE 2 中档       49152
+call :FIT_LINE 3 标准档     65536
+call :FIT_LINE 4 长文档档   98304
+call :FIT_LINE 5 超长档     131072
+call :FIT_LINE 6 长上下文档 163840
+call :FIT_LINE 7 极限档     196608
 exit /b 0
 
 
@@ -1789,19 +1795,21 @@ if not defined VRH exit /b 0
 
 if %VRH% LEQ 0 exit /b 0
 
-if %VRH% GEQ 15000 ( set "REC_TIER=6" & set "REC_TIER_NAME=极限档"     & set "REC_CTX_HINT=128K" & exit /b 0 )
+if %VRH% GEQ 22000 ( set "REC_TIER=7" & set "REC_TIER_NAME=极限档"     & set "REC_CTX_HINT=192K" & exit /b 0 )
 
-if %VRH% GEQ 11000 ( set "REC_TIER=5" & set "REC_TIER_NAME=超大档"     & set "REC_CTX_HINT=96K"  & exit /b 0 )
+if %VRH% GEQ 15000 ( set "REC_TIER=6" & set "REC_TIER_NAME=长上下文档" & set "REC_CTX_HINT=160K" & exit /b 0 )
 
-if %VRH% GEQ 7000  ( set "REC_TIER=4" & set "REC_TIER_NAME=长上下文档" & set "REC_CTX_HINT=64K"  & exit /b 0 )
+if %VRH% GEQ 11000 ( set "REC_TIER=5" & set "REC_TIER_NAME=超长档"     & set "REC_CTX_HINT=128K" & exit /b 0 )
 
-if %VRH% GEQ 3000  ( set "REC_TIER=3" & set "REC_TIER_NAME=超长档"     & set "REC_CTX_HINT=32K"  & exit /b 0 )
+if %VRH% GEQ 7000  ( set "REC_TIER=4" & set "REC_TIER_NAME=长文档档"   & set "REC_CTX_HINT=96K"  & exit /b 0 )
+
+if %VRH% GEQ 3000  ( set "REC_TIER=3" & set "REC_TIER_NAME=标准档"     & set "REC_CTX_HINT=64K"  & exit /b 0 )
 
 set "REC_TIER=1"
 
-set "REC_TIER_NAME=实用档"
+set "REC_TIER_NAME=短任务档"
 
-set "REC_CTX_HINT=16K"
+set "REC_CTX_HINT=32K"
 
 exit /b 0
 
@@ -2331,17 +2339,19 @@ if not defined CUR_THINK set "CUR_THINK=off"
 
 if not defined CUR_GPU set "CUR_GPU=off"
 
-if "%CUR_TIER%"=="1" set "CUR_TIER_NAME=实用档"
+if "%CUR_TIER%"=="1" set "CUR_TIER_NAME=短任务档"
 
-if "%CUR_TIER%"=="2" set "CUR_TIER_NAME=长文档档"
+if "%CUR_TIER%"=="2" set "CUR_TIER_NAME=中档"
 
-if "%CUR_TIER%"=="3" set "CUR_TIER_NAME=超长档"
+if "%CUR_TIER%"=="3" set "CUR_TIER_NAME=标准档"
 
-if "%CUR_TIER%"=="4" set "CUR_TIER_NAME=长上下文档"
+if "%CUR_TIER%"=="4" set "CUR_TIER_NAME=长文档档"
 
-if "%CUR_TIER%"=="5" set "CUR_TIER_NAME=超大档"
+if "%CUR_TIER%"=="5" set "CUR_TIER_NAME=超长档"
 
-if "%CUR_TIER%"=="6" set "CUR_TIER_NAME=极限档"
+if "%CUR_TIER%"=="6" set "CUR_TIER_NAME=长上下文档"
+
+if "%CUR_TIER%"=="7" set "CUR_TIER_NAME=极限档"
 
 REM 输出建议 = 上下文 ÷ 4（与 :APPLY_TIER 的 OUT 同口径），供 status 显示 / 填客户端 max_tokens
 
@@ -2765,6 +2775,7 @@ REM 「同 CPU / DDR5 下，大显存换更快 token」的着力点。
 REM 覆盖范围：8/10/12/16G。6G 及以下、20G 及以上不在带内（KV 精度按各自逻辑自适应）。
 set "BGA_FORCE_Q8="
 set "BGA_MMPROJ_FORCE="
+set "BGA_LOW_LAYERS="
 if %GPU_TOTAL_MIB% GEQ 7600 if %GPU_TOTAL_MIB% LEQ 17500 (
   set "BGA_FORCE_Q8=1"
   set "BGA_MMPROJ_FORCE=1"
@@ -2830,7 +2841,7 @@ REM 注意：这里刻意全部写成一维语句、不用 if ( ) 块 —— 块
 
 REM 用 %VAR% 读会拿到旧值（见 说明.md §3.8），换个写法就不会踩这个坑。
 
-if not defined CTX set "CTX=16384"
+if not defined CTX set "CTX=32768"
 
 set "BGA_MMPROJ=%GPU_MMPROJ_MIB%"
 
@@ -2882,6 +2893,10 @@ call :BGA_CALC
 
 :BGA_PICK_DONE
 
+REM 层数太少（< 8）时不值得上 GPU：几百 MiB 权重放显存，却仍要走 PCIe 取专家，
+REM 收益为负。此时退回纯 CPU 并说明真实原因 —— 不能沿用「空闲显存不足」的文案，
+REM 那种情况空闲显存明明是够的（只是本档位 KV 太大把权重挤没了）。
+if %BGA_N% LSS 8 set "BGA_LOW_LAYERS=1"
 if %BGA_N% LSS 8 goto :BGA_SMALL
 
 if %BGA_N% GTR %GPU_NLAYER% set /a BGA_N=%GPU_NLAYER%
@@ -3035,9 +3050,22 @@ exit /b 0
 
 :BGA_SMALL
 
+REM 两种退回纯 CPU 的原因要分开说，否则用户会被引到错误的方向：
+REM   1) 本档位上下文太大，KV 把显存吃到只剩几层权重 -> 该换更小的档位；
+REM   2) 空闲显存本身就不够门槛 -> 该关掉占显存的程序，或本机不适合用 GPU。
+if defined BGA_LOW_LAYERS goto :BGA_SMALL_LOW
+
 set "GPU_STRATEGY=纯 CPU（空闲显存 %GPU_FREE_MIB% MiB，不足门槛 %GPU_MIN_FREE_MIB% MiB）"
 
 set "GPU_STRATEGY_EN=CPU only - free VRAM %GPU_FREE_MIB% MiB is below the threshold %GPU_MIN_FREE_MIB% MiB"
+
+exit /b 0
+
+:BGA_SMALL_LOW
+
+set "GPU_STRATEGY=纯 CPU（本档位上下文所需的 KV 把显存占满，只剩 %BGA_N% 层权重可放，不足 8 层，GPU 加速无收益；请改选更小的档位）"
+
+set "GPU_STRATEGY_EN=CPU only - this tier's KV leaves room for only %BGA_N% layers (below 8), so GPU offload would not pay off; pick a smaller tier"
 
 exit /b 0
 

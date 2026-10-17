@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""静态验证显存预算：把启动脚本里真实的预算代码抽出来，喂各种显卡规格遍历 6 个档位。
+"""静态验证显存预算：把启动脚本里真实的预算代码抽出来，喂各种显卡规格遍历 7 个档位。
 
 **不需要显卡，也不加载模型** —— 只跑 :BUILD_GPU_ARGS / :BGA_CALC / :NEED_FOR_CTX，
 确认算出的层数、KV 精度、参数串都合法：没有负数层数、除零、越界，
@@ -53,15 +53,25 @@ GPUS = [
     ("RTX 5070       12GB", 12288),
     ("RTX 5060        8GB", 8192),
     ("RTX 3050        8GB", 8192),
+    ("GTX 1660        6GB", 6144),
+    ("GTX 1650        4GB", 4096),
     ("GTX 1060 标定   3GB", 3072),
 ]
-TIERS = [(1, 16384), (2, 24576), (3, 32768), (4, 65536), (5, 98304), (6, 131072)]
+TIERS = [(1, 32768), (2, 49152), (3, 65536), (4, 98304),
+         (5, 131072), (6, 163840), (7, 196608)]
 DESKTOP = 300          # Windows 桌面 + 浏览器典型占用
 MODEL_BYTES = 22134528992   # 官方 UD-Q4_K_M
 
+# 视觉塔用占位文件：本工具只验证「载入视觉塔时」的预算，不读文件内容。
+# 这样在副本目录、或没下载模型的机器上也能跑出与实机一致的预算结果
+# （否则 `if not exist %MMPROJ%` 会把 930 MiB 直接算成 0，层数虚高）。
+os.makedirs(os.path.dirname(OUT), exist_ok=True)
+FAKE_MMPROJ = os.path.join(os.path.dirname(OUT), "_fake_mmproj.gguf")
+open(FAKE_MMPROJ, "wb").write(b"\0" * 1024)
+
 head = ['@echo off', 'chcp 936 <nul >nul 2>nul', 'set "GPU_AVAILABLE=1"',
         'set "GPU_MODE=auto"', 'set "MMPROJ_SW=auto"',
-        r'set "MMPROJ=E:\llm-cpp\llama.cpp\models\mmproj-BF16.gguf"']
+        'set "MMPROJ=%s"' % FAKE_MMPROJ]
 script = head + consts + ['']
 for name, total in GPUS:
     for tier, ctx in TIERS:
@@ -106,7 +116,10 @@ for r in rows:
         got = args.split("--n-gpu-layers ")[1].split()[0] if "--n-gpu-layers " in args else "?"
         flag = "  <== 参数串(%s)与层数(%d)不一致！" % (got, n_i)
     # 专家卸载一致性：ncmoe==40 应走 --cpu-moe；1..39 应走 --n-cpu-moe ncmoe；0 应两者都无
-    if ncmoe.isdigit():
+    # 层数 < 8 时脚本会主动退回纯 CPU（--n-gpu-layers 0），此时专家天然全在内存，
+    # 不该要求 --cpu-moe —— 这是刻意的降级，不是参数遗漏。
+    cpu_only = "--n-gpu-layers 0" in args
+    if ncmoe.isdigit() and not cpu_only:
         nc = int(ncmoe)
         if nc >= 40 and "--cpu-moe" not in args:
             flag += "  <== 专家全留CPU却无 --cpu-moe！"
@@ -114,7 +127,7 @@ for r in rows:
             flag += "  <== --n-cpu-moe(%s) 与专家留CPU层数(%d)不一致！" % (ncmoe, nc)
         elif nc == 0 and ("--n-cpu-moe" in args or "--cpu-moe" in args):
             flag += "  <== 专家全上显存却仍带 cpu-moe 参数！"
-    else:
+    elif not cpu_only:
         flag += "  <== 专家层数非法(%r)" % ncmoe
     shown = args.replace("--parallel 1", "..").strip()
     print(" | ".join([name, tier, ctx, n, mmp, kv, kvu, expg, ncmoe, avail, shown, need]) + flag)

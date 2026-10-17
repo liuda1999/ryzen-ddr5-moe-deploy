@@ -402,7 +402,7 @@ echo [╢МнС/ERROR] н╢ж╙╡нйЩё╨%~1 / unknown argument: %~1
 
 echo.
 
-echo сц╥╗/USAGEё╨фТ╤╞╢Сдёпм_StartModel.bat [start^|stop^|restart^|status^|check^|menu] [╣╣н╩/tier 1-6]
+echo сц╥╗/USAGEё╨фТ╤╞╢Сдёпм_StartModel.bat [start^|stop^|restart^|status^|check^|menu] [╣╣н╩/tier 1-7]
 
 echo.
 
@@ -807,20 +807,23 @@ echo ------------------------------------------------------------
 echo   гКя║тЯеДжц╣╣н╩ / Choose a tier
 echo ------------------------------------------------------------
 echo   ╣╣н╩/TIER              иообнд/CTX  йДЁЖ╫╗рИ/max  IQ3_S дз╢Ф  Q4 дз╢Ф
-echo   1  й╣сц╣╣/Practical          16K       4096      16G        24G
-echo   2  Ё╓нд╣╣╣╣/Long doc         24K       6144      16G        24G
-echo   3  Ё╛Ё╓╣╣/Extended           32K       8192      16G        24G
-echo   4  Ё╓иообнд╣╣/Big ctx        64K      16384      16G        24G
-echo   5  Ё╛╢С╣╣/Very big           96K      24576      17G        25G
-echo   6  ╪╚оч╣╣/Maximum           128K      32768      17G        25G
+echo   1  ╤лхннЯ╣╣/Short task      32K       8192      16G        24G
+echo   2  жп╣╣/Medium             48K      12288      16G        24G
+echo   3  ╠Йв╪╣╣/Standard         64K      16384      16G        24G
+echo   4  Ё╓нд╣╣╣╣/Long doc        96K      24576      17G        25G
+echo   5  Ё╛Ё╓╣╣/Extended        128K      32768      17G        25G
+echo   6  Ё╓иообнд╣╣/Big ctx      160K      40960      18G        26G
+echo   7  ╪╚оч╣╣/Maximum         192K      49152      18G        26G
 echo   0  мкЁЖ / Exit
 echo ------------------------------------------------------------
 echo   к╣цВ / NOTE
-echo   еДжц/SETUP     16G дз╢Ф + 4G ртиоот╢Ф ║З IQ3_Sё╛вН╤Ю 64K иообнд
-echo                  32G дз╢Фё╗16G*2 к╚м╗╣юё╘║З Q4_K_Mё╛вН╤Ю 64K иообнд
-echo                  32G дз╢Ф + 8G ртиоот╢Ф ║З Q4_K_M ╪╟ртиоё╛64K ртиоиообнд
+echo   еДжц/SETUP     32K йгвН╣м╣╣ё╗╤лхннЯ / нч N ©╗╤╣╣вё╘ё╩дз╢Ф╤╗иооч║╒от╢Ф╤╗кы╤х
+echo                  16G дз╢Ф + 4G ртиоот╢Ф ║З IQ3_Sё╛©и╣╫ 64K
+echo                  32G дз╢Фё╗16G*2 к╚м╗╣юё╘║З Q4_K_Mё╛©и╣╫ 64K
+echo                  64G дз╢Ф ║З Q4_K_M ╪╟ртиоё╛96K~192K ©╢от╢Ф
+echo                  мф╪Ж/recommendedё╨8G║З96K  12G║З128K  16G║З160K  24G+║З192K
 echo   кы╤х/SPEED     ╤л╤т╩╟т╪ 21~24 t/sё╛лНбЗ╨СкФЁ╓╤х╩╨╫╣ / short chat ~21-24 t/s, drops as ctx fills
-echo                  32K лНбЗт╪ 20║╒64K лНбЗт╪ 11 t/s / ~20 at 32K, ~11 at 64K
+echo                  т╪ц©╤ЮлН 1 г╖ token бЩ 0.7 msё╩30K т╪ 15 t/sё╛64K лНбЗт╪ 11 t/s
 echo   оъЁл/THREAD    х╚╡©╣╣н╩╬Ын╙ 24 оъЁл / 24 threads for every tier
 echo   ©уоп/IDLE      нчхннЯ 2 п║й╠╨Сйм╥едз╢Фё╛об╢н╤т╩╟вт╤╞жьть / frees RAM after 2h idle, reloads on next request
 echo   йж╡А/MANUAL    оЙ╪Ш/see ╡нйЩ╫влщйж╡А_TierManual.md
@@ -1701,17 +1704,19 @@ REM ============================================================
 
 set "CTX="
 
-if "%TIER%"=="1" ( set "CTX=16384"  & set "THREADS=24" & set "OUT=4096"  & set "TIER_NAME=й╣сц╣╣"     & set "NEED_GB=24" )
+if "%TIER%"=="1" ( set "CTX=32768"  & set "THREADS=24" & set "OUT=8192"  & set "TIER_NAME=╤лхннЯ╣╣"   & set "NEED_GB=24" )
 
-if "%TIER%"=="2" ( set "CTX=24576"  & set "THREADS=24" & set "OUT=6144"  & set "TIER_NAME=Ё╓нд╣╣╣╣"   & set "NEED_GB=24" )
+if "%TIER%"=="2" ( set "CTX=49152"  & set "THREADS=24" & set "OUT=12288" & set "TIER_NAME=жп╣╣"       & set "NEED_GB=24" )
 
-if "%TIER%"=="3" ( set "CTX=32768"  & set "THREADS=24" & set "OUT=8192"  & set "TIER_NAME=Ё╛Ё╓╣╣"     & set "NEED_GB=25" )
+if "%TIER%"=="3" ( set "CTX=65536"  & set "THREADS=24" & set "OUT=16384" & set "TIER_NAME=╠Йв╪╣╣"     & set "NEED_GB=24" )
 
-if "%TIER%"=="4" ( set "CTX=65536"  & set "THREADS=24" & set "OUT=16384" & set "TIER_NAME=Ё╓иообнд╣╣" & set "NEED_GB=25" )
+if "%TIER%"=="4" ( set "CTX=98304"  & set "THREADS=24" & set "OUT=24576" & set "TIER_NAME=Ё╓нд╣╣╣╣"   & set "NEED_GB=25" )
 
-if "%TIER%"=="5" ( set "CTX=98304"  & set "THREADS=24" & set "OUT=24576" & set "TIER_NAME=Ё╛╢С╣╣"     & set "NEED_GB=26" )
+if "%TIER%"=="5" ( set "CTX=131072" & set "THREADS=24" & set "OUT=32768" & set "TIER_NAME=Ё╛Ё╓╣╣"     & set "NEED_GB=25" )
 
-if "%TIER%"=="6" ( set "CTX=131072" & set "THREADS=24" & set "OUT=32768" & set "TIER_NAME=╪╚оч╣╣"     & set "NEED_GB=26" )
+if "%TIER%"=="6" ( set "CTX=163840" & set "THREADS=24" & set "OUT=40960" & set "TIER_NAME=Ё╓иообнд╣╣" & set "NEED_GB=26" )
+
+if "%TIER%"=="7" ( set "CTX=196608" & set "THREADS=24" & set "OUT=49152" & set "TIER_NAME=╪╚оч╣╣"     & set "NEED_GB=26" )
 
 exit /b 0
 
@@ -1725,12 +1730,13 @@ REM ============================================================
 
 :SHOW_TIER_FIT
 echo   ╣╠г╟╩ЗфВ/total %TOTAL_GB% GBё╛©исц/free %FREE_GB% GBё╛╠╬дёпм "%MODEL_LABEL%" об╣д╣╣н╩гИ©Ж / tiers that fitё╨
-call :FIT_LINE 1 й╣сц╣╣     16384
-call :FIT_LINE 2 Ё╓нд╣╣╣╣   24576
-call :FIT_LINE 3 Ё╛Ё╓╣╣     32768
-call :FIT_LINE 4 Ё╓иообнд╣╣ 65536
-call :FIT_LINE 5 Ё╛╢С╣╣     98304
-call :FIT_LINE 6 ╪╚оч╣╣     131072
+call :FIT_LINE 1 ╤лхннЯ╣╣   32768
+call :FIT_LINE 2 жп╣╣       49152
+call :FIT_LINE 3 ╠Йв╪╣╣     65536
+call :FIT_LINE 4 Ё╓нд╣╣╣╣   98304
+call :FIT_LINE 5 Ё╛Ё╓╣╣     131072
+call :FIT_LINE 6 Ё╓иообнд╣╣ 163840
+call :FIT_LINE 7 ╪╚оч╣╣     196608
 exit /b 0
 
 
@@ -1771,19 +1777,21 @@ if not defined VRH exit /b 0
 
 if %VRH% LEQ 0 exit /b 0
 
-if %VRH% GEQ 15000 ( set "REC_TIER=6" & set "REC_TIER_NAME=╪╚оч╣╣"     & set "REC_CTX_HINT=128K" & exit /b 0 )
+if %VRH% GEQ 22000 ( set "REC_TIER=7" & set "REC_TIER_NAME=╪╚оч╣╣"     & set "REC_CTX_HINT=192K" & exit /b 0 )
 
-if %VRH% GEQ 11000 ( set "REC_TIER=5" & set "REC_TIER_NAME=Ё╛╢С╣╣"     & set "REC_CTX_HINT=96K"  & exit /b 0 )
+if %VRH% GEQ 15000 ( set "REC_TIER=6" & set "REC_TIER_NAME=Ё╓иообнд╣╣" & set "REC_CTX_HINT=160K" & exit /b 0 )
 
-if %VRH% GEQ 7000  ( set "REC_TIER=4" & set "REC_TIER_NAME=Ё╓иообнд╣╣" & set "REC_CTX_HINT=64K"  & exit /b 0 )
+if %VRH% GEQ 11000 ( set "REC_TIER=5" & set "REC_TIER_NAME=Ё╛Ё╓╣╣"     & set "REC_CTX_HINT=128K" & exit /b 0 )
 
-if %VRH% GEQ 3000  ( set "REC_TIER=3" & set "REC_TIER_NAME=Ё╛Ё╓╣╣"     & set "REC_CTX_HINT=32K"  & exit /b 0 )
+if %VRH% GEQ 7000  ( set "REC_TIER=4" & set "REC_TIER_NAME=Ё╓нд╣╣╣╣"   & set "REC_CTX_HINT=96K"  & exit /b 0 )
+
+if %VRH% GEQ 3000  ( set "REC_TIER=3" & set "REC_TIER_NAME=╠Йв╪╣╣"     & set "REC_CTX_HINT=64K"  & exit /b 0 )
 
 set "REC_TIER=1"
 
-set "REC_TIER_NAME=й╣сц╣╣"
+set "REC_TIER_NAME=╤лхннЯ╣╣"
 
-set "REC_CTX_HINT=16K"
+set "REC_CTX_HINT=32K"
 
 exit /b 0
 
@@ -2313,17 +2321,19 @@ if not defined CUR_THINK set "CUR_THINK=off"
 
 if not defined CUR_GPU set "CUR_GPU=off"
 
-if "%CUR_TIER%"=="1" set "CUR_TIER_NAME=й╣сц╣╣"
+if "%CUR_TIER%"=="1" set "CUR_TIER_NAME=╤лхннЯ╣╣"
 
-if "%CUR_TIER%"=="2" set "CUR_TIER_NAME=Ё╓нд╣╣╣╣"
+if "%CUR_TIER%"=="2" set "CUR_TIER_NAME=жп╣╣"
 
-if "%CUR_TIER%"=="3" set "CUR_TIER_NAME=Ё╛Ё╓╣╣"
+if "%CUR_TIER%"=="3" set "CUR_TIER_NAME=╠Йв╪╣╣"
 
-if "%CUR_TIER%"=="4" set "CUR_TIER_NAME=Ё╓иообнд╣╣"
+if "%CUR_TIER%"=="4" set "CUR_TIER_NAME=Ё╓нд╣╣╣╣"
 
-if "%CUR_TIER%"=="5" set "CUR_TIER_NAME=Ё╛╢С╣╣"
+if "%CUR_TIER%"=="5" set "CUR_TIER_NAME=Ё╛Ё╓╣╣"
 
-if "%CUR_TIER%"=="6" set "CUR_TIER_NAME=╪╚оч╣╣"
+if "%CUR_TIER%"=="6" set "CUR_TIER_NAME=Ё╓иообнд╣╣"
+
+if "%CUR_TIER%"=="7" set "CUR_TIER_NAME=╪╚оч╣╣"
 
 REM йДЁЖ╫╗рИ = иообнд ║б 4ё╗сК :APPLY_TIER ╣д OUT м╛©з╬╤ё╘ё╛╧╘ status отй╬ / лН©м╩╖╤к max_tokens
 
@@ -2747,6 +2757,7 @@ REM ║╦м╛ CPU / DDR5 обё╛╢Сот╢Ф╩╩╦Э©Л token║╧╣двеа╕╣Ц║ё
 REM ╦╡╦г╥╤н╖ё╨8/10/12/16G║ё6G ╪╟ртоб║╒20G ╪╟ртио╡╩тз╢Ьдзё╗KV ╬╚╤х╟╢╦Ввтбъ╪╜втййс╕ё╘║ё
 set "BGA_FORCE_Q8="
 set "BGA_MMPROJ_FORCE="
+set "BGA_LOW_LAYERS="
 if %GPU_TOTAL_MIB% GEQ 7600 if %GPU_TOTAL_MIB% LEQ 17500 (
   set "BGA_FORCE_Q8=1"
   set "BGA_MMPROJ_FORCE=1"
@@ -2812,7 +2823,7 @@ REM в╒рБё╨уБюО©лрБх╚╡©п╢Ёир╩н╛сО╬Д║╒╡╩сц if ( ) ©И ║╙║╙ ©Идз set ╧Щ╣д╠Да©тзм╛р╩©
 
 REM сц %VAR% ╤а╩Адц╣╫╬иж╣ё╗╪Ш к╣цВ.md ║Л3.8ё╘ё╛╩╩╦Жп╢╥╗╬м╡╩╩А╡хуБ╦Ж©с║ё
 
-if not defined CTX set "CTX=16384"
+if not defined CTX set "CTX=32768"
 
 set "BGA_MMPROJ=%GPU_MMPROJ_MIB%"
 
@@ -2864,6 +2875,10 @@ call :BGA_CALC
 
 :BGA_PICK_DONE
 
+REM ╡ЦйЩл╚иыё╗< 8ё╘й╠╡╩ж╣╣цио GPUё╨╪╦╟ы MiB х╗жь╥еот╢Фё╛х╢хтр╙въ PCIe х║в╗╪рё╛
+REM йурФн╙╦╨║ё╢кй╠мк╩ь╢© CPU ╡╒к╣цВуФй╣т╜рР ║╙║╙ ╡╩дэяьсц║╦©уопот╢Ф╡╩вЦ║╧╣днд╟╦ё╛
+REM дгжжгИ©Ж©уопот╢ФцВцВйг╧╩╣дё╗ж╩йг╠╬╣╣н╩ KV л╚╢С╟ях╗жь╪╥ц╩акё╘║ё
+if %BGA_N% LSS 8 set "BGA_LOW_LAYERS=1"
 if %BGA_N% LSS 8 goto :BGA_SMALL
 
 if %BGA_N% GTR %GPU_NLAYER% set /a BGA_N=%GPU_NLAYER%
@@ -3017,9 +3032,22 @@ exit /b 0
 
 :BGA_SMALL
 
+REM а╫жжмк╩ь╢© CPU ╣дт╜рРр╙╥ж©╙к╣ё╛╥ЯтРсц╩╖╩А╠╩рЩ╣╫╢МнС╣д╥╫оРё╨
+REM   1) ╠╬╣╣н╩иообндл╚╢Сё╛KV ╟яот╢ФЁт╣╫ж╩йё╪╦╡Цх╗жь -> ╦ц╩╩╦Эп║╣д╣╣н╩ё╩
+REM   2) ©уопот╢Ф╠╬иМ╬м╡╩╧╩це╪В -> ╦ц╧ь╣Ту╪от╢Ф╣дЁлпРё╛╩Р╠╬╩З╡╩йй╨осц GPU║ё
+if defined BGA_LOW_LAYERS goto :BGA_SMALL_LOW
+
 set "GPU_STRATEGY=╢© CPUё╗©уопот╢Ф %GPU_FREE_MIB% MiBё╛╡╩вЦце╪В %GPU_MIN_FREE_MIB% MiBё╘"
 
 set "GPU_STRATEGY_EN=CPU only - free VRAM %GPU_FREE_MIB% MiB is below the threshold %GPU_MIN_FREE_MIB% MiB"
+
+exit /b 0
+
+:BGA_SMALL_LOW
+
+set "GPU_STRATEGY=╢© CPUё╗╠╬╣╣н╩иообндкЫпХ╣д KV ╟яот╢Фу╪бЗё╛ж╩йё %BGA_N% ╡Цх╗жь©и╥её╛╡╩вЦ 8 ╡Цё╛GPU ╪скынчйурФё╩гК╦дя║╦Эп║╣д╣╣н╩ё╘"
+
+set "GPU_STRATEGY_EN=CPU only - this tier's KV leaves room for only %BGA_N% layers (below 8), so GPU offload would not pay off; pick a smaller tier"
 
 exit /b 0
 

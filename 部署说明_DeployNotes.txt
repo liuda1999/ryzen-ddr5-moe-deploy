@@ -133,9 +133,9 @@
     深上下文 decode 时两边都吃不满，是层在显卡、专家在内存的串行依赖所致。
     提速方向：把更多权重挪到显存（减少 CPU 每 token 的搬运量），或减少每步要扫的 KV。
     64K 档实测：q8_0 KV + 40 层 = 11.3 t/s；同卡换 f16 只能上 24 层，只剩 7.5 t/s。
-    档位：1=16K 2=24K 3=32K 4=64K 5=96K 6=128K（12K 太短已取消）。
-      启动菜单会按显卡显存自动推荐档位（8G→64K、12G→96K、16G→128K）。
-      64K 及以上在小显存卡上会自动给 KV 加 q8_0 量化。
+    档位：1=32K 2=48K 3=64K 4=96K 5=128K 6=160K 7=192K（16K/24K 太短已取消）。
+      启动菜单会按显卡显存自动推荐档位（3~4G→64K、8G→96K、12G→128K、16G→160K、24G+→192K）。
+      模型原生 256K 窗口，192K 不越界；64K 及以上在小显存卡上会自动给 KV 加 q8_0 量化。
     有 N 卡时默认启用显存混合卸载；无 N 卡按纯 CPU（约 15.6 t/s）。
     脚本已内置 THREADS=24，改 CTX 即可换档（现场在 :APPLY_TIER 段）。
     全部档位数据与取舍：E:\llm-cpp\参数阶梯手册_TierManual.md
@@ -143,9 +143,9 @@
   快捷开关（推荐，工作区根目录，全中文命名）：
     E:\llm-cpp\启动大模型_StartModel.bat              二合一开关：未运行则启动，已运行则关闭
                                         （双击即可，按提示选档位，默认实用档）
-    E:\llm-cpp\启动大模型_StartModel.bat start 2      直接以实用档（16K/24 线程）启动
+    E:\llm-cpp\启动大模型_StartModel.bat start 2      直接以中档（48K/24 线程）启动
     E:\llm-cpp\启动大模型_StartModel.bat stop         关闭服务并释放内存
-    E:\llm-cpp\启动大模型_StartModel.bat restart 3    以长文档档（24K/24 线程）重启
+    E:\llm-cpp\启动大模型_StartModel.bat restart 3    以标准档（64K/24 线程）重启
     E:\llm-cpp\启动大模型_StartModel.bat status       只看状态（PID / 内存 / 档位 / 地址）
     E:\llm-cpp\启动大模型_StartModel.bat check        只做环境与安全检查
 
@@ -324,7 +324,7 @@
     - 该模型默认启用思考链（reasoning），会先输出 reasoning_content 再给答案；
       若 token 预算较小可能只看到思考过程（finish_reason: length）。
       需要直接回答时：增大 max_tokens，或用 --reasoning off 关闭思考。
-    - 上下文按档位限制（16K/24K/32K/64K/96K/128K，按显存推荐）。
+    - 上下文按档位限制（32K/48K/64K/96K/128K/160K/192K，按显存推荐）。
 
 
 =====================================================================
