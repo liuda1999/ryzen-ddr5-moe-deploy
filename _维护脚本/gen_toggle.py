@@ -186,7 +186,9 @@ REM 局域网访问密钥文件（首次启动自动生成；可手工加多行 
 
 set "KEY_FILE=%ROOT%api-key.txt"
 
-set "READY_TIMEOUT=300"
+set "READY_TIMEOUT=480"
+REM 2026-10-22：GPU_LOADMODE=none 时启动要真读 20.6 GiB（mmap 只是映射，秒回）。
+REM 模型在 page cache 里时约 7~9 s，冷盘实测 60~120 s，老硬盘更久 —— 300 s 会误判「没起来」。
 REM 空闲休眠：连续无推理任务这么多秒后，llama-server 会释放模型与 KV（把内存/显存还回去），
 REM 下次请求再自动重新加载（= 回收资源 + 重新预热）。默认 7200 秒 = 2 小时。
 REM llama.cpp 自身默认是 -1（从不休眠）；这里显式设 2 小时：够一整天随手用，
@@ -227,9 +229,17 @@ set "KV_OFFLOAD="         REM on / off；off = KV 留内存（省显存，适合
 
 REM 性能参数（统一，不分显存档位）—— 依据 2026-10-17 在 GTX 1060 3GB 上的实测：
 
-REM   UB = 物理批大小（-ub）。512→1024：预填充 177.9 → 246.3 t/s（+38%）、解码 23.28 → 23.31
-REM        （不变）、显存 +146 MiB；再上 2048 反而掉到 222.7（-10%）。故统一 1024。
-REM        注意：改大 UB 必须同步调大 GPU_FIXED_MIB，否则层数会算多 → 越界分页（暴跌）。
+REM   UB = 物理批大小（-ub）。两条实测结论不同，按显存档位分开：
+REM     · 3 GB 纯 CPU 路线（--cpu-moe）：512→1024 预填充 177.9 → 246.3（+38%）、
+REM       再上 2048 反而掉到 222.7（-10%）。故 6 GB 及以下保持 1024。
+REM     · 8 GB 及以上（MoE 被 op-offload 交给显卡）：prefill 每个 ubatch 都要把
+REM       17.7 GiB 专家张量搬一遍 PCIe，ub 翻倍 = 搬运次数减半。2026-10-22 在
+REM       RTX 2070 8GB / 96K / E=7 / 16 线程实测：
+REM         ub 1024 → PP4K 466.8 / PP16K 396.9 / decode 46.1 / compute 660 MiB
+REM         ub 1536 → PP4K 473.7 / PP16K 410.0 / decode 46.1
+REM         ub 2048 → PP4K 680.5（+46%）/ PP16K 550.6（+39%）/ decode 45.5 / compute 914 MiB
+REM       故 8 GB 及以上用 2048。注意：compute 缓冲从 660 涨到 914 MiB，
+REM       GPU_FIXED_MIB 必须同步上调（见 :BUILD_GPU_ARGS 里的分带覆盖），否则层数会算多 → 越界分页。
 set "UB=1024"
 
 REM   FA = Flash Attention（on / off / auto）。本机实测对预填充的贡献在噪声内（175.7 vs 177.9），
@@ -266,9 +276,56 @@ set "GPU_FIXED_MIB=600"       REM 计算缓冲 + CUDA 上下文（不含 KV）�
 
 set "GPU_SAFETY_MIB=96"       REM 安全垫：留出余量，驱动就不必回收 llama 的页（调大更保险、更慢）
 
-set "GPU_MMPROJ_MIB=930"      REM 载入 mmproj 视觉塔时它占的专用显存（2026-10-16 实测 +926 MiB：21 层时 1978→2904 MiB）
+set "GPU_MMPROJ_MIB=1134"     REM 视觉塔 offload 到显卡时占的专用显存。2026-10-22 在 8 GB 卡上从日志读到 [mtmd] estimated worst-case memory usage of mmproj is 1134 MiB（旧值 930 是 3 GB 卡上估的，少算 204）；仅 MMPROJ_OFFLOAD=gpu 时参与预算
 
 set "GPU_MMPROJ_MIN_GAIN=8"   REM auto 模式下：省掉视觉塔能让可用层数多出这么多层以上，就自动不载它
+
+set "GPU_SLACK_MIN_MIB=512"   REM 算完层数后必须剩下的显存余量；不足就先让视觉塔腾地方
+
+set "GPU_BAND_HIGH_UB=7000"   REM ≥ 它（8/12/14/16G 带）走 ub 2048 + compute 预算 900 MiB；以下保持 ub 1024 + 600（3~6G 是纯 CPU 卸专家路线，实测 ub 2048 反而慢 10%）
+
+set "GPU_VRAM_BAND_T2=11000"  REM 显存分带阈值（MiB）：低于它算 8G 带（8192/6144/4096/3072）
+
+set "GPU_VRAM_BAND_T3=14000"  REM 低于它算 12G 带（12288）
+
+set "GPU_VRAM_BAND_T3B=15000" REM 低于它算 14G 带（14336）
+
+set "GPU_VRAM_BAND_FULL=20000" REM 低于它算 16G 带（16384）；达到或超过则保持旧行为（专家不设上限）
+
+set "GPU_EXPERT_CAP_T1=8"     REM 专家层上限：8G 及以下放到 8 层（2026-10-22 在 RTX 2070 8GB 实测：96K 档在 512 MiB 余量底线下自动落到 7 层，decode 47.3 t/s；E=8 是 47.0，差在噪声内，但余量少 450 MiB）
+
+set "GPU_EXPERT_CAP_T2=12"    REM 12G 带（12288）：按 8G 实测的 8 层抬 45~50% → 12 层
+
+set "GPU_EXPERT_CAP_T3B=14"   REM 14G 带（14336）：按「每 1 GB 显存 1 层专家」线性外推 → 14 层
+
+set "GPU_EXPERT_CAP_T3=16"    REM 16G 带（16384）：按 8G 的 8 层翻倍 → 16 层
+
+REM 三个性能开关（2026-10-22 在 RTX 2070 8GB / 96K 上逐项实测，见参数阶梯手册）
+
+REM   GPU_LOADMODE：auto = 默认 mmap（权重按需缺页）；none = 启动时全量读进内存。
+REM     none 拿回三样东西：CUDA pinned host 内存（H2D 带宽约翻倍）、repack 内核、
+REM     以及「首次生成要现场缺页」的惩罚。实测 96K/E=1：PP4K 378.6 → 423.7 t/s（+12%）、
+REM     首轮 decode 30.8 → 38.6 t/s（+25%）、纯 decode 40.8 → 41.3。代价是启动多读 20.6 GiB
+REM     （模型已在 page cache 里时约 7~9 s，冷盘约 60~120 s，故 READY_TIMEOUT 提到 480）。
+set "GPU_LOADMODE=none"
+
+REM   GPU_OPOFFLOAD：on = 默认（MoE 的 batch≥32 时整块交给显卡）。2026-10-22 实测过 off：
+REM     prefill 阶段 CPU 从 3.3 核升到 23.9 核（看起来「满载」了），但 PP4K 从 378.6 掉到
+REM     332.2 t/s —— CPU 逐块算 17.7 GiB 专家比显卡边搬边算更慢，decode 也没有收益。
+REM     结论：CPU 在 prefill 时空转不是浪费，是显卡在干活；把活抢回来只会更慢。保持 on。
+set "GPU_OPOFFLOAD=on"
+
+REM   GPU_MOE_CACHE_MIB：专家 LRU 显存缓存。实测是负收益（E=2+2 GiB：decode 41.5 → 37.3；
+REM     E=0+3 GiB：42.0 → 39.2），每 token 的缓存命中省下的算力抵不过 PCIe 搬权重。默认关。
+set "GPU_MOE_CACHE_MIB=0"
+
+REM GPU 模式下的线程数。**项目口径是 12 核 / 24 线程**：CPU 本身就是推理的一部分，
+REM MoE 专家常驻内存由 CPU 算，所以默认把 24 条线程全部交给它，而不是只给物理核。
+REM 取舍（2026-10-22 实测，96K / E=7）：16 线程 47.0、20 线程 45.1、24 线程 45.4、
+REM 28 线程 45.0、32 线程 43.7 t/s；24 线程略慢 3.5%，但 CPU 占用从 15.8 核升到 23.5 核
+REM （系统 75%），符合「CPU 尽可能多提供算力」的设计目标，且 decode 仍远高于 40 t/s。
+REM 想要那 3.5% 可以把这里改成 16（物理核数）；纯 CPU 兜底模式也用 24。
+set "GPU_THREADS=24"
 
 set "GPU_NLAYER=40"           REM 模型层数（GGUF block_count=40），用来给算出的层数封顶
 
@@ -281,6 +338,16 @@ REM 它实打实吃约 930 MiB 专用显存 —— 3 GB 卡上那是十几层权
 REM 差别很大（实测 40 层 15.6 t/s vs 21 层 11.1 t/s，深上下文解码）。
 
 set "MMPROJ_SW=auto"
+
+REM 视觉塔放在哪：host = 放系统内存（共享显存，不占专用显存）；gpu = 放显卡专用显存。
+
+REM 本项目的设计是「视觉塔走共享显存」——mmproj 是 BF16 约 800 MiB，放专用显存等于
+
+REM 白丢掉 1 到 2 层专家层的空间，而它只在处理图片时才算，放内存不影响文本速度。
+
+REM 放到内存要用 --no-mmproj-offload（官方默认是 offload 到 GPU）。
+
+set "MMPROJ_OFFLOAD=host"
 
 REM 层数按「显卡总显存 - 其它程序占用 - 固定开销 - KV - 安全垫」算：
 
@@ -839,7 +906,7 @@ echo   配置/SETUP     32K 是最低档（短任务 / 无 N 卡兜底）；内�
 echo                  16G 内存 + 4G 以上显存 → IQ3_S，可到 64K
 echo                  32G 内存（16G*2 双通道）→ Q4_K_M，可到 64K
 echo                  64G 内存 → Q4_K_M 及以上，96K~192K 看显存
-echo                  推荐/recommended：8G→96K  12G→128K  16G→160K  24G+→192K
+echo                  推荐/recommended：8G→96K  12G/14G→128K  16G 及以上→192K
 echo   速度/SPEED     短对话约 21~24 t/s，填满后随长度缓降 / short chat ~21-24 t/s, drops as ctx fills
 echo                  约每多填 1 千 token 慢 0.7 ms；30K 约 15 t/s，64K 填满约 11 t/s
 echo   线程/THREAD    全部档位均为 24 线程 / 24 threads for every tier
@@ -889,7 +956,7 @@ echo   是否开启深度思考（推理链）？/ Enable deep thinking ^(reason
 
 echo ============================================================
 
-echo   已选档位/TIER：%TIER_NAME%      %CTX% 上下文/ctx / 输出建议 max_tokens %OUT% / %THREADS% 线程/threads
+echo   已选档位/TIER：%TIER_NAME%      %CTX% 上下文/ctx / 输出建议 max_tokens %OUT% / %THREADS% 线程/threads（上 GPU 时改用 %GPU_THREADS% 线程，见启动横幅）
 
 echo.
 
@@ -1129,7 +1196,15 @@ REM auto 模式判定「视觉塔不划算」时也要真的不传 --mmproj（�
 
 if "%BGA_MMPROJ_AUTOOFF%"=="1" set "MMPROJ_PS="
 
-powershell -NoProfile -Command "$q=[char]34; $c='cmd /c ' + $q + $q + '%SERVER_EXE%' + $q + ' --model ' + $q + '%MODEL%' + $q + %MMPROJ_PS% ' --host %HOST% --port %PORT% --api-key %API_KEY% --reasoning %THINK% --ctx-size %CTX% --threads %THREADS% --threads-batch %THREADS% --sleep-idle-seconds %IDLE_SLEEP_SEC% -ub %UB% -fa %FA% %GPU_ARGS% < nul > ' + $q + '%LOG_FILE%' + $q + ' 2>&1' + $q; (New-Object -ComObject WScript.Shell).Run($c, 0, $false)"
+REM 视觉塔改放系统内存（共享显存）：官方默认 offload 到 GPU，这里显式关掉。
+
+REM 只在真的会传 --mmproj 时才加这个参数，省得日志里出现无用参数。
+
+set "MMPROJ_OFF_PS="
+
+if defined MMPROJ_PS if /i "%MMPROJ_OFFLOAD%"=="host" set "MMPROJ_OFF_PS=' --no-mmproj-offload' +"
+
+powershell -NoProfile -Command "$q=[char]34; $c='cmd /c ' + $q + $q + '%SERVER_EXE%' + $q + ' --model ' + $q + '%MODEL%' + $q + %MMPROJ_PS% %MMPROJ_OFF_PS% ' --host %HOST% --port %PORT% --api-key %API_KEY% --reasoning %THINK% --ctx-size %CTX% --threads %THREADS% --threads-batch %THREADS% --sleep-idle-seconds %IDLE_SLEEP_SEC% -ub %UB% -fa %FA% %GPU_ARGS% < nul > ' + $q + '%LOG_FILE%' + $q + ' 2>&1' + $q; (New-Object -ComObject WScript.Shell).Run($c, 0, $false)"
 
 
 
@@ -1795,9 +1870,12 @@ if not defined VRH exit /b 0
 
 if %VRH% LEQ 0 exit /b 0
 
-if %VRH% GEQ 22000 ( set "REC_TIER=7" & set "REC_TIER_NAME=极限档"     & set "REC_CTX_HINT=192K" & exit /b 0 )
-
-if %VRH% GEQ 15000 ( set "REC_TIER=6" & set "REC_TIER_NAME=长上下文档" & set "REC_CTX_HINT=160K" & exit /b 0 )
+REM 16 GB 显存档直接给 192K（2026-10-22 按 8G 实测参数外推）：
+REM   16 GB / 192K 预算 = 16384 - 其它 ~400 - compute 900 - KV(q8 1966) - 96 = 13022 MiB，
+REM   非专家 40 层占 1600，剩 11422 给专家 → 16 层（上限 16），余量仍有 3422 MiB。
+REM   实测峰值推算约 12400 MiB，也就是 16 GB 卡上还剩 4 GB 左右，正好拿来换上下文。
+REM 24 GB 及以上同档（192K 已是本模型原生窗口的 73%，再大没有收益）。
+if %VRH% GEQ 15000 ( set "REC_TIER=7" & set "REC_TIER_NAME=极限档"     & set "REC_CTX_HINT=192K" & exit /b 0 )
 
 if %VRH% GEQ 11000 ( set "REC_TIER=5" & set "REC_TIER_NAME=超长档"     & set "REC_CTX_HINT=128K" & exit /b 0 )
 
@@ -2768,18 +2846,23 @@ if /i "%GPU_MODE%"=="manual" goto :BGA_MANUAL
 
 REM ---------- auto ----------
 
-REM 中端显存带（8/12/16G：约 7600~17500 MiB）专用策略：KV 强制 q8_0、视觉塔常驻（开）。
-REM q8 在 96K/128K 高上下文留更多余量、并保证视觉塔不被挤掉；省下的显存还能多装
-REM 专家层（见 :BGA_MOE_CALC）—— 显存越大，上显存的专家层越多、生成越快，这正是
-REM 「同 CPU / DDR5 下，大显存换更快 token」的着力点。
-REM 覆盖范围：8/10/12/16G。6G 及以下、20G 及以上不在带内（KV 精度按各自逻辑自适应）。
-set "BGA_FORCE_Q8="
-set "BGA_MMPROJ_FORCE="
+REM 8 GB 及以上：ub 2048（prefill 少搬一半 PCIe）+ compute 预算同步上调到 900 MiB。
+REM 实测 compute 缓冲从 660（ub1024）涨到 914（ub2048），预算里只写 600 会算多一层 → 贴顶分页。
+REM 6 GB 及以下不跟：那条路线是 --cpu-moe（MoE 全在 CPU），ub 2048 实测反而慢 10%。
+if %GPU_TOTAL_MIB% GEQ %GPU_BAND_HIGH_UB% set "UB=2048"
+
+if %GPU_TOTAL_MIB% GEQ %GPU_BAND_HIGH_UB% set "GPU_FIXED_MIB=900"
+
+REM 0.3.3 起取消「中端显存带强制 q8_0 KV + 视觉塔常驻」这条**组合**策略。它的前提
+REM 「显存越大、上显存的专家层越多越划算」在 2026-10-22 被 8 GB 卡实测推翻：7 层专家
+REM （3.5 GiB）把 prefill 需要的临时缓冲挤没了（prefill 从 200 多崩到 8.4 t/s）。
+REM 但拆开来看，两条子策略的结论不同，不要一起丢掉：
+REM   - KV 精度：**保留强制 q8_0**（见下方 BGA_FORCE_Q8）。这是本项目的设计口径，
+REM     低性能设备不用全精度 KV，省下的一半显存正是留给权重与计算缓冲的。
+REM   - 视觉塔常驻：**取消**。改为 MMPROJ_OFFLOAD=host（放系统内存，不占专用显存），
+REM     预算里也就不再扣它 930~1134 MiB。
+REM 专家层改按显存分带设硬上限（见 BGA_ECAP）。详细论证见 README 的 0.3.3 小节。
 set "BGA_LOW_LAYERS="
-if %GPU_TOTAL_MIB% GEQ 7600 if %GPU_TOTAL_MIB% LEQ 17500 (
-  set "BGA_FORCE_Q8=1"
-  set "BGA_MMPROJ_FORCE=1"
-)
 
 REM 这里刻意不用 --fit，原因见下方注释；改为自己按显存余量算卸几层。
 
@@ -2821,6 +2904,27 @@ if %GPU_FREE_MIB% LSS %GPU_MIN_FREE_MIB% goto :BGA_SMALL
 
 if not defined GPU_TOTAL_MIB goto :BGA_SMALL
 
+REM 专家层硬上限：按显存分带。写法是从高往低逐个覆盖，低带写在后面 —— 8192 会
+REM 命中最后一行取 T1，12288 取 T2，16384 取 T3，20000 及以上保持 40（不设限）。
+REM 为什么必须设上限：8 GB 卡把 7 层专家塞进显存后，KV + 视觉塔 + 计算缓冲一起
+REM 越界，WDDM 静默分页，prefill 从 200 多 t/s 崩到 8.4 t/s（2026-10-22 实测）。
+set /a BGA_ECAP=%GPU_NLAYER%
+
+if %GPU_TOTAL_MIB% LSS %GPU_VRAM_BAND_FULL% set /a BGA_ECAP=%GPU_EXPERT_CAP_T3%
+
+if %GPU_TOTAL_MIB% LSS %GPU_VRAM_BAND_T3B% set /a BGA_ECAP=%GPU_EXPERT_CAP_T3B%
+
+if %GPU_TOTAL_MIB% LSS %GPU_VRAM_BAND_T3% set /a BGA_ECAP=%GPU_EXPERT_CAP_T2%
+
+if %GPU_TOTAL_MIB% LSS %GPU_VRAM_BAND_T2% set /a BGA_ECAP=%GPU_EXPERT_CAP_T1%
+
+REM KV 精度：本项目面向低性能设备，KV 固定 q8_0，全档位无例外、不存在 f16 分支。
+REM 理由不只是省显存（约省一半：96K 时 983 vs 1966 MiB），更因为 f16 KV 是
+REM 「大显存卡不计代价」的旧路径，与本项目「把显存让给权重、把算力压给 CPU」
+REM 的设计相反；且 q8_0 的精度代价实测只有约 0.7%。
+REM 用单行 if 置位，不用 if ( ) 块（块内 %VAR% 展开取旧值，见 说明.md §3.8）。
+set "BGA_FORCE_Q8=1"
+
 REM --parallel 1：只开一个并发槽。本地单人使用用不上多槽，而它让 KV cache
 
 REM 不再按 4 份分配 —— 实测 prefill 27.3 -> 33.5 t/s、生成 20.3 -> 21.4 t/s，
@@ -2834,8 +2938,7 @@ REM 显存预算（逐项都实测过，启动信息里会打印出来）：
 REM   可给权重 = 显存总量 - 其它程序占用 - 计算缓冲/上下文 - 视觉塔 - KV - 安全垫
 
 REM   KV(f16) = 上下文/50 MiB，KV(q8_0) = 上下文/100 MiB
-
-REM 先按 f16 算；层数不足速度拐点（32 层）时改用 q8_0 重算并取更优者。
+REM 本项目一律 q8_0（见上面 BGA_FORCE_Q8），全档位无 f16；f16 分支仅为兼容保留。
 
 REM 注意：这里刻意全部写成一维语句、不用 if ( ) 块 —— 块内 set 过的变量在同一块里
 
@@ -2849,25 +2952,39 @@ if /i "%MMPROJ_SW%"=="off" set "BGA_MMPROJ=0"
 
 if not exist "%MMPROJ%" set "BGA_MMPROJ=0"
 
+REM 视觉塔走系统内存时，不占专用显存，预算里就不该扣它（这是本项目的设计口径）：
+
+REM 它的 BF16 权重约 800 MiB，只在处理图片时参与计算，放内存对文本速度无影响。
+
+if /i "%MMPROJ_OFFLOAD%"=="host" set "BGA_MMPROJ=0"
+
 set "BGA_MMPROJ_AUTOOFF="
 
 REM 视觉塔与层数只能二选一：mmproj 实测要吃约 930 MiB 专用显存。
 
-REM 做法：先按「载」算一次可用层数，再按「不载」算一次；若省下它能让层数
+REM 做法：先按「载」算一次 N 与 E，再按「不载」算一次，比较三种收益：
 
-REM 多出 GPU_MMPROJ_MIN_GAIN 层以上，就自动不载（文字场景优先速度），
+REM   1) 省下它能多上 GPU_MMPROJ_MIN_GAIN 层非专家权重（老口径，大显存卡仍用这条）；
 
-REM 并在启动信息里说明；必须处理图片就把 MMPROJ_SW 设成 on 强制载入。
+REM   2) 省下它能多上 1 层以上专家（新口径，只在 8/12/16G 带生效）；
+
+REM   3) 载着它余量不足 GPU_SLACK_MIN_MIB，会贴顶分页（新口径）。
+
+REM 任一成立就不载，并在启动信息里说明。要处理图片把 MMPROJ_SW 设为 on 强制载入。
 
 if /i not "%MMPROJ_SW%"=="auto" goto :BGA_MMP_DECIDED
-
-if defined BGA_MMPROJ_FORCE goto :BGA_MMP_DECIDED
 
 if "%BGA_MMPROJ%"=="0" goto :BGA_MMP_DECIDED
 
 call :BGA_CALC
 
+call :BGA_MOE_CALC
+
 set "BGA_N_WITH=%BGA_N%"
+
+set "BGA_E_WITH=%BGA_EXPERT_GPU%"
+
+set "BGA_SLACK_WITH=%BGA_SLACK%"
 
 set "BGA_MMPROJ_KEEP=%BGA_MMPROJ%"
 
@@ -2875,9 +2992,29 @@ set "BGA_MMPROJ=0"
 
 call :BGA_CALC
 
+call :BGA_MOE_CALC
+
 set /a BGA_MMP_GAIN=%BGA_N% - %BGA_N_WITH%
 
+set /a BGA_MP_E_GAIN=%BGA_EXPERT_GPU% - %BGA_E_WITH%
+
+REM 24G 及以上保持旧行为（只看非专家层数），不让新判据误伤大显存卡。
+
+if %BGA_ECAP% GEQ %GPU_NLAYER% goto :BGA_MMP_LEGACY
+
+if %BGA_MMP_GAIN% GEQ %GPU_MMPROJ_MIN_GAIN% goto :BGA_MMP_AUTOOFF
+
+if %BGA_MP_E_GAIN% GEQ 1 goto :BGA_MMP_AUTOOFF
+
+if %BGA_SLACK_WITH% LSS %GPU_SLACK_MIN_MIB% goto :BGA_MMP_AUTOOFF
+
+goto :BGA_MMP_REVERT
+
+:BGA_MMP_LEGACY
+
 if %BGA_MMP_GAIN% LSS %GPU_MMPROJ_MIN_GAIN% goto :BGA_MMP_REVERT
+
+:BGA_MMP_AUTOOFF
 
 set "BGA_MMPROJ_AUTOOFF=1"
 
@@ -2917,15 +3054,50 @@ if %BGA_NCMOE% LSS %GPU_NLAYER% set "BGA_MOE_ARG=--n-cpu-moe %BGA_NCMOE%"
 
 if %BGA_NCMOE% LEQ 0 set "BGA_MOE_ARG="
 
-set "GPU_ARGS=--n-gpu-layers %BGA_N% %BGA_MOE_ARG% --parallel 1 %BGA_KVQ%"
+REM 三个性能开关拼参数：全部用单行 if，不用 if ( ) 块 —— 块内 %VAR% 取旧值会拼错。
+REM 参数追加在 --parallel 1 之后（check_budget 的表格裁剪依赖 "--parallel 1" 这个字面量）。
+set "BGA_OPOFF_ARG="
 
-set "GPU_BUDGET=显存 %GPU_TOTAL_MIB% MiB - 其它程序 %GPU_OTHER_MIB% - 计算/上下文 %GPU_FIXED_MIB% - 视觉塔 %BGA_MMPROJ% - KV（%BGA_KVNAME%）%BGA_KVUSED% - 安全垫 %GPU_SAFETY_MIB% → 可给权重 %BGA_AVAIL% MiB（÷%GPU_LAYER_MIB% = %BGA_N% 层）"
+if /i "%GPU_OPOFFLOAD%"=="off" set "BGA_OPOFF_ARG=--no-op-offload"
 
-set "GPU_BUDGET_EN=VRAM %GPU_TOTAL_MIB% - other apps %GPU_OTHER_MIB% - compute/ctx %GPU_FIXED_MIB% - mmproj %BGA_MMPROJ% - KV（%BGA_KVNAME%）%BGA_KVUSED% - headroom %GPU_SAFETY_MIB% → weights %BGA_AVAIL% MiB = %BGA_N% layers"
+set "BGA_LOADMODE_ARG="
 
-set "GPU_STRATEGY=非专家权重上显存（%BGA_N%/%GPU_NLAYER% 层），专家上显存 %BGA_EXPERT_GPU% 层 + 留内存 %BGA_NCMOE% 层，单并发槽，KV %BGA_KVNAME%"
+if /i "%GPU_LOADMODE%"=="none" set "BGA_LOADMODE_ARG=--load-mode none"
 
-set "GPU_STRATEGY_EN=non-expert on GPU（%BGA_N%/%GPU_NLAYER%）/ expert layers: %BGA_EXPERT_GPU% on GPU + %BGA_NCMOE% in RAM / 1 slot / KV %BGA_KVNAME%"
+set "BGA_MCACHE_ARG="
+
+if %GPU_MOE_CACHE_MIB% GTR 0 set "BGA_MCACHE_ARG=--moe-cache-mib %GPU_MOE_CACHE_MIB%"
+
+REM 线程数只在「真的上了 GPU」时改成物理核数：此时 24 线程的 SMT 争用纯属内耗。
+REM 纯 CPU 退回模式在 :BGA_SMALL 就 exit /b 了，走不到这一行，仍用档位表的线程数。
+set "THREADS=%GPU_THREADS%"
+
+set "GPU_ARGS=--n-gpu-layers %BGA_N% %BGA_MOE_ARG% --parallel 1 %BGA_KVQ% %BGA_OPOFF_ARG% %BGA_LOADMODE_ARG% %BGA_MCACHE_ARG%"
+
+REM 预算行里的视觉塔一项：走系统内存时显示「0（系统内存）」，免得用户以为漏算了。
+
+set "BGA_MMPROJ_TXT=%BGA_MMPROJ%"
+
+if /i "%MMPROJ_OFFLOAD%"=="host" if not "%BGA_MMPROJ_AUTOOFF%"=="1" set "BGA_MMPROJ_TXT=0（系统内存/host）"
+
+set "GPU_BUDGET=显存 %GPU_TOTAL_MIB% MiB - 其它程序 %GPU_OTHER_MIB% - 计算/上下文 %GPU_FIXED_MIB% - 视觉塔 %BGA_MMPROJ_TXT% - KV（%BGA_KVNAME%）%BGA_KVUSED% - 安全垫 %GPU_SAFETY_MIB% → 可给权重 %BGA_AVAIL% MiB（÷%GPU_LAYER_MIB% = %BGA_N% 层），专家层上限 %BGA_ECAP%，最终余量 %BGA_SLACK% MiB"
+
+set "GPU_BUDGET_EN=VRAM %GPU_TOTAL_MIB% - other apps %GPU_OTHER_MIB% - compute/ctx %GPU_FIXED_MIB% - mmproj %BGA_MMPROJ% - KV（%BGA_KVNAME%）%BGA_KVUSED% - headroom %GPU_SAFETY_MIB% → weights %BGA_AVAIL% MiB = %BGA_N% layers / expert cap %BGA_ECAP% / slack %BGA_SLACK% MiB"
+
+set "GPU_STRATEGY=非专家权重上显存（%BGA_N%/%GPU_NLAYER% 层），专家上显存 %BGA_EXPERT_GPU% 层（本显存档上限 %BGA_ECAP%）+ 留内存 %BGA_NCMOE% 层，单并发槽，KV %BGA_KVNAME%"
+
+set "GPU_STRATEGY_EN=non-expert on GPU（%BGA_N%/%GPU_NLAYER%）/ expert layers: %BGA_EXPERT_GPU% on GPU（cap %BGA_ECAP%）+ %BGA_NCMOE% in RAM / 1 slot / KV %BGA_KVNAME%"
+
+set "GPU_CAP_NOTE="
+
+if %BGA_ECAP% GEQ %GPU_NLAYER% goto :BGA_CAP_NOTE_DONE
+
+set "GPU_CAP_NOTE=本机 %GPU_TOTAL_MIB% MiB 显存，专家层上显存限制为 %BGA_ECAP% 层：其余 %BGA_NCMOE% 层专家留给 CPU（%THREADS% 线程满载），GPU 专注 KV 与每 token 必读的权重 / this GPU keeps at most %BGA_ECAP% expert layer(s) on VRAM; the other %BGA_NCMOE% stay in RAM for the CPU threads"
+
+:BGA_CAP_NOTE_DONE
+
+REM 性能开关的状态单独一行打印：预算行已经很长，塞进去就看不清了。
+set "GPU_SWITCH=加载/load %GPU_LOADMODE% · op-offload %GPU_OPOFFLOAD% · 专家缓存/moe-cache %GPU_MOE_CACHE_MIB% MiB · 线程/threads %THREADS%"
 
 set "GPU_LOWNOTE="
 
@@ -2937,7 +3109,7 @@ set "GPU_LOWNOTE=层数偏少会明显影响速度：可关掉浏览器/视频�
 
 set "MMPROJ_NOTE="
 
-if "%BGA_MMPROJ_AUTOOFF%"=="1" set "MMPROJ_NOTE=为腾出显存给权重，本次自动不载视觉塔（省 %GPU_MMPROJ_MIB% MiB，换来 %BGA_MMP_GAIN% 层上显存）。要处理图片请把 MMPROJ_SW 设为 on / vision tower auto-disabled to free VRAM for %BGA_MMP_GAIN% more GPU layers; set MMPROJ_SW=on to enable image input"
+if "%BGA_MMPROJ_AUTOOFF%"=="1" set "MMPROJ_NOTE=为腾出显存给权重或保住余量，本次自动不载视觉塔（省 %GPU_MMPROJ_MIB% MiB：非专家多 %BGA_MMP_GAIN% 层、专家多 %BGA_MP_E_GAIN% 层）。要处理图片请把 MMPROJ_SW 设为 on / vision tower auto-disabled to free %GPU_MMPROJ_MIB% MiB（+%BGA_MMP_GAIN% non-expert, +%BGA_MP_E_GAIN% expert layers）; set MMPROJ_SW=on to enable image input"
 
 exit /b 0
 
@@ -2955,6 +3127,10 @@ set /a BGA_KVF16=%CTX% / 50
 
 set /a BGA_KVQ8=%CTX% / 100
 
+REM 强制 q8_0（8/12/16G 带及更低显存档）：直接按 q8 算，再不必跟 f16 比较。
+REM 这是本项目的标准口径 —— 低性能设备用全精度 KV 等于白扔一半权重空间。
+if defined BGA_FORCE_Q8 goto :BGA_CALC_FORCE_Q8
+
 set "BGA_KVQ="
 
 set "BGA_KVNAME=f16"
@@ -2965,10 +3141,8 @@ set /a BGA_N=%BGA_AVAIL% / %GPU_LAYER_MIB%
 
 set /a BGA_KVUSED=%BGA_KVF16%
 
-REM 中端显存带强制 q8_0（:BUILD_GPU_ARGS 里设的 BGA_FORCE_Q8）：层数本就压满 40，
-REM 走专用支路直接按 q8 KV 算，省得再跟 f16 比来比去。
-if defined BGA_FORCE_Q8 goto :BGA_CALC_FORCE_Q8
-
+REM 未强制 q8 的路径（仅 20G 及以上会走到）：先按 f16 算；撑不到层数上限时
+REM 再试 q8_0，多出 2 层以上才值得降 KV 精度。
 REM 到层数上限就收工。**注意必须先封顶再返回**：上层要用 BGA_N 比较
 REM 「省下视觉塔能多上几层」，若不封顶，大显存卡上算出来的是
 REM 766 与 790 这种远超上限的数，差值恒 ≥ 阈值 → 会把视觉塔误关掉。
@@ -2980,12 +3154,20 @@ set /a BGA_N=%GPU_NLAYER%
 exit /b 0
 
 :BGA_CALC_FORCE_Q8
+
+REM 强制 q8_0 支路：KV 按 CTX/100 计。算出层数后立刻封顶（理由同上）。
 set /a BGA_AVAIL=%GPU_TOTAL_MIB% - %GPU_OTHER_MIB% - %GPU_FIXED_MIB% - %BGA_MMPROJ% - %BGA_KVQ8% - %GPU_SAFETY_MIB%
+
 set /a BGA_N=%BGA_AVAIL% / %GPU_LAYER_MIB%
+
 if %BGA_N% GTR %GPU_NLAYER% set /a BGA_N=%GPU_NLAYER%
+
 set /a BGA_KVUSED=%BGA_KVQ8%
+
 set "BGA_KVQ=--cache-type-k q8_0 --cache-type-v q8_0"
+
 set "BGA_KVNAME=q8_0"
+
 exit /b 0
 
 :BGA_CALC_TRY_Q8
@@ -3020,31 +3202,67 @@ exit /b 0
 
 REM 子程序：用「可给权重」里没被非专家用掉的部分，推导能把几层专家放上显存。
 
-REM 入参（环境里）：BGA_N / BGA_AVAIL / GPU_LAYER_MIB / GPU_EXPERT_LAYER_MIB / GPU_NLAYER。
+REM 入参（环境里）：BGA_N / BGA_AVAIL / GPU_LAYER_MIB / GPU_EXPERT_LAYER_MIB / GPU_NLAYER / BGA_ECAP。
 
-REM 出参：BGA_EXPERT_GPU（上显存的专家层数）/ BGA_NCMOE（留内存的专家层数 = --n-cpu-moe 的值）。
+REM 出参：BGA_EXPERT_GPU（上显存的专家层数）/ BGA_NCMOE（留内存的专家层数 = --n-cpu-moe 的值）/
+
+REM       BGA_SLACK（把专家也算进去之后真正剩下的余量，MiB）。
 
 REM 只有非专家权重已压满 GPU_NLAYER 层时才可能有余量给专家；否则专家全留 CPU。
+
+REM 关键：算出来的 E 还要再受 BGA_ECAP 封顶（8G 最多 1 层 / 12G 2 层 / 16G 3 层）。
+
+if not defined BGA_ECAP set /a BGA_ECAP=%GPU_NLAYER%
 
 set /a BGA_EXPERT_GPU=0
 
 set /a BGA_NCMOE=%GPU_NLAYER%
 
-if %BGA_N% LSS %GPU_NLAYER% exit /b 0
+if %BGA_N% LSS %GPU_NLAYER% goto :BGA_MOE_SLACK
 
 set /a BGA_WUSED=%BGA_N% * %GPU_LAYER_MIB%
 
 set /a BGA_LEFT=%BGA_AVAIL% - %BGA_WUSED%
 
-if %BGA_LEFT% LSS %GPU_EXPERT_LAYER_MIB% exit /b 0
+REM 专家显存缓存（--moe-cache-mib）同样占专用显存，必须先扣掉再算能放几层专家，
+REM 否则算出来的层数会把缓存挤到显存外。本项目默认 0（实测负收益），保留这条是为了
+REM 有人手工打开它时预算不会算歪。
+if %GPU_MOE_CACHE_MIB% GTR 0 set /a BGA_LEFT=%BGA_LEFT% - %GPU_MOE_CACHE_MIB%
+
+if %BGA_LEFT% LSS %GPU_EXPERT_LAYER_MIB% goto :BGA_MOE_SLACK
 
 set /a BGA_EXPERT_GPU=%BGA_LEFT% / %GPU_EXPERT_LAYER_MIB%
 
 if %BGA_EXPERT_GPU% GTR %GPU_NLAYER% set /a BGA_EXPERT_GPU=%GPU_NLAYER%
 
+if %BGA_EXPERT_GPU% GTR %BGA_ECAP% set /a BGA_EXPERT_GPU=%BGA_ECAP%
+
+REM 放完专家层后仍必须留够 GPU_SLACK_MIN_MIB，否则就是贴顶 —— 贴顶会触发 WDDM
+REM 静默分页，prefill 直接崩（2026-10-22 在 8 GB 卡上实测 200 多 → 8.4 t/s）。
+REM 余量不够就少放一层，宁可用 CPU 也不能越界。
+set /a BGA_SLACK_AFTER=%BGA_LEFT% - %BGA_EXPERT_GPU% * %GPU_EXPERT_LAYER_MIB%
+
+if %BGA_SLACK_AFTER% GEQ %GPU_SLACK_MIN_MIB% goto :BGA_MOE_SET
+
+set /a BGA_EXPERT_GPU=%BGA_EXPERT_GPU% - 1
+
+if %BGA_EXPERT_GPU% LSS 0 set /a BGA_EXPERT_GPU=0
+
+:BGA_MOE_SET
+
 set /a BGA_NCMOE=%GPU_NLAYER% - %BGA_EXPERT_GPU%
 
 if %BGA_NCMOE% LSS 0 set /a BGA_NCMOE=0
+
+:BGA_MOE_SLACK
+
+REM 早退路径（层数不足 / 非专家没压满）也要给 BGA_MCACHE 赋值，否则后面
+REM set /a 里引用空变量会按 0 静默算错；这里统一取常量。
+set /a BGA_MCACHE=%GPU_MOE_CACHE_MIB%
+
+if not defined BGA_MCACHE set /a BGA_MCACHE=0
+
+set /a BGA_SLACK=%BGA_AVAIL% - %BGA_N% * %GPU_LAYER_MIB% - %BGA_EXPERT_GPU% * %GPU_EXPERT_LAYER_MIB% - %BGA_MCACHE%
 
 exit /b 0
 
@@ -3159,7 +3377,11 @@ if defined GPU_BUDGET echo   显存预算/BUDGET   %GPU_BUDGET%
 
 if defined GPU_BUDGET_EN echo              %GPU_BUDGET_EN%
 
+if defined GPU_SWITCH echo   性能开关/SWITCH   %GPU_SWITCH%
+
 if defined GPU_OTHER_NOTE echo   ^[注意/NOTE^]     %GPU_OTHER_NOTE%
+
+if defined GPU_CAP_NOTE echo   ^[注意/NOTE^]     %GPU_CAP_NOTE%
 
 if defined MMPROJ_NOTE echo   ^[注意/NOTE^]     %MMPROJ_NOTE%
 
@@ -3601,6 +3823,9 @@ if not defined NFC_MB set "NFC_MB=21504"
 set /a NFC_MODEL=(NFC_MB + 1023) / 1024
 set /a NFC_KV=(%~1 + 65535) / 65536
 set /a NEED_GB=NFC_MODEL + NFC_KV + 2
+REM --load-mode none 是「全量读进私有内存」，不跟 page cache 共享：mmap 时模型页可以
+REM 被系统随时回收，常驻时不行。所以内存口径要加 1 GiB，否则 32 GB 机器上 128K 档会被放行到换页。
+if /i "%GPU_LOADMODE%"=="none" set /a NEED_GB=%NEED_GB% + 1
 exit /b 0
 :MEM_CHECK
 set "MEM_BLOCK=0"

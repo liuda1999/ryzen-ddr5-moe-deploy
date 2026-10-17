@@ -50,6 +50,7 @@ GPUS = [
     ("RTX 5080       16GB", 16384),
     ("RTX 5070 Ti    16GB", 16384),
     ("RTX 5060 Ti    16GB", 16384),
+    ("14GB 显存卡     14GB", 14336),
     ("RTX 5070       12GB", 12288),
     ("RTX 5060        8GB", 8192),
     ("RTX 3050        8GB", 8192),
@@ -71,6 +72,7 @@ open(FAKE_MMPROJ, "wb").write(b"\0" * 1024)
 
 head = ['@echo off', 'chcp 936 <nul >nul 2>nul', 'set "GPU_AVAILABLE=1"',
         'set "GPU_MODE=auto"', 'set "MMPROJ_SW=auto"',
+        'set "MMPROJ_OFFLOAD=host"',
         'set "MMPROJ=%s"' % FAKE_MMPROJ]
 script = head + consts + ['']
 for name, total in GPUS:
