@@ -244,13 +244,13 @@ def main():
     if commit["sha"] == head:
         print("本地与远端提交 SHA 完全一致")
     else:
-        tip = os.path.join(ROOT, ".git", "PUSHED_HEAD")
+        tip = os.path.join(ROOT, ".git", "info", "PUSHED_HEAD")
         with io.open(tip, "w", encoding="utf-8", newline="\n") as f:
-            f.write("%s\n%s\n" % (commit["sha"], BRANCH))
+            f.write("%s\n" % commit["sha"])
         print("远端提交 %s 与本地 %s 不同（内容一致，历史已被折叠）"
               % (commit["sha"][:12], head[:12]))
         print("  **未改动本地 ref** —— 否则 git fsck 会报 missing commit")
-        print("  远端 HEAD 已记到 .git/PUSHED_HEAD，需要时查那里")
+        print("  远端 HEAD 已记到 .git/info/PUSHED_HEAD，需要时查那里")
 
 
 if __name__ == "__main__":
