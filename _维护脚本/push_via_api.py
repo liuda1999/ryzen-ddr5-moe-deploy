@@ -13,7 +13,9 @@
     2. 逐个上传 blob，并与本地 `git ls-tree` 给出的哈希比对；
     3. 以远端树为 base_tree 建树，校验**新树哈希 == 本地 HEAD 的树哈希**
        （字节级一致；不一致立刻中止，绝不推错内容）；
-    4. 建提交并更新 `refs/heads/main`，然后把本地 main / origin-main 对齐到远端提交。
+    4. 建提交并更新远端 `refs/heads/main`；**本地 ref 保持不动**，只把远端 HEAD
+       记到 `.git/PUSHED_HEAD` —— 远端提交的父对象本地取不回来，建 ref 会让
+       `git fsck` 永久报 missing commit，而 `git gc` 也清不掉。
 
 注意：
     - 远端有、本地没有的文件，推上去等于删除。默认**中止**并要求确认；
@@ -36,6 +38,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -68,18 +71,32 @@ TOKEN = cred_token()
 
 def api(method, path, payload=None):
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
-    req = urllib.request.Request(API + path, data=data, method=method)
-    req.add_header("Authorization", "Bearer " + TOKEN)
-    req.add_header("Accept", "application/vnd.github+json")
-    req.add_header("X-GitHub-Api-Version", "2022-11-28")
-    if data:
-        req.add_header("Content-Type", "application/json")
-    try:
-        with urllib.request.urlopen(req, timeout=120) as r:
-            body = r.read().decode("utf-8", "replace")
-            return r.status, (json.loads(body) if body else {})
-    except urllib.error.HTTPError as e:
-        return e.code, {"error": e.read().decode("utf-8", "replace")[:400]}
+    # 受限网络下 /git/trees?recursive=1 实测要 60~120 s，超时设紧会误判为断网。
+    # 统一放宽到 300 s，并对超时 / 连接类错误重试 2 次；
+    # HTTPError（4xx/5xx）是服务端真实答复，直接返回不重试。
+    last = None
+    for attempt in range(3):
+        req = urllib.request.Request(API + path, data=data, method=method)
+        req.add_header("Authorization", "Bearer " + TOKEN)
+        req.add_header("Accept", "application/vnd.github+json")
+        req.add_header("X-GitHub-Api-Version", "2022-11-28")
+        if data:
+            req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=300) as r:
+                body = r.read().decode("utf-8", "replace")
+                return r.status, (json.loads(body) if body else {})
+        except urllib.error.HTTPError as e:
+            return e.code, {"error": e.read().decode("utf-8", "replace")[:400]}
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            last = e
+            if attempt < 2:
+                wait = 3 * (attempt + 1)
+                print("  [重试 %d/2] %s %s 失败（%s），%d s 后重来"
+                      % (attempt + 1, method, path.split("?")[0], e, wait))
+                time.sleep(wait)
+    raise SystemExit("请求失败（已重试 2 次）：%s %s -> %s"
+                     % (method, path.split("?")[0], last))
 
 
 def predict_remote_commit(tree, parent, message, ident_lines):
@@ -216,16 +233,24 @@ def main():
         sys.exit("更新 ref 失败 %s: %s" % (st, upd))
     print("远端 main  -> %s" % upd["object"]["sha"])
 
-    # 远端提交的 SHA 可能与本地 HEAD 不同（本地历史里可能有推不上去的网页端提交，
-    # 或本地有多个未推送提交被折叠成一个）。只要树一致，就把本地 ref 对齐过去，
-    # 避免以后每次推送都要重算。
+    # 远端提交的 SHA 通常与本地 HEAD 不同（本地多个未推送提交被折叠成一个，
+    # 或远端历史里有本地取不回来的网页端提交）。
+    # 这里刻意**不**再建 refs/heads/main / refs/remotes/origin/main：
+    # 远端提交的父对象在本地对象库里没有（github.com 不可达、fetch 不回来），
+    # 一旦有 ref 指向它，`git fsck` 就会永久报
+    #   broken link from commit ... to commit ... / missing commit ...
+    # 且 `git gc` 也清不掉（ref 让它一直「可达」）。0.3.7 那次就这样踩过一遍。
+    # 改为把远端 HEAD 记进 .git/PUSHED_HEAD（纯文本，不参与对象可达性）。
     if commit["sha"] == head:
         print("本地与远端提交 SHA 完全一致")
     else:
-        subprocess.run(["git", "update-ref", "refs/heads/main", commit["sha"]], cwd=ROOT, check=True)
-        subprocess.run(["git", "update-ref", "refs/remotes/origin/main", commit["sha"]],
-                       cwd=ROOT, check=True)
-        print("已把本地 main 与 origin/main 对齐到远端提交 %s（内容相同）" % commit["sha"][:12])
+        tip = os.path.join(ROOT, ".git", "PUSHED_HEAD")
+        with io.open(tip, "w", encoding="utf-8", newline="\n") as f:
+            f.write("%s\n%s\n" % (commit["sha"], BRANCH))
+        print("远端提交 %s 与本地 %s 不同（内容一致，历史已被折叠）"
+              % (commit["sha"][:12], head[:12]))
+        print("  **未改动本地 ref** —— 否则 git fsck 会报 missing commit")
+        print("  远端 HEAD 已记到 .git/PUSHED_HEAD，需要时查那里")
 
 
 if __name__ == "__main__":
