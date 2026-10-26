@@ -254,7 +254,19 @@ set "GPU_LAYER_MIB=40"        REM Ã¿²ã¡¸·Ç×¨¼ÒÈ¨ÖØ¡¹¡Ö40 MiB£¨Êµ²â 39.6£º41 ²ã¹²
 
 set "GPU_EXPERT_LAYER_MIB=500" REM Ã¿²ã¡¸MoE ×¨¼ÒÈ¨ÖØ¡¹¡Ö500 MiB£¨Q4_K_M Êµ²âµ¥²ã 432~498 MiB£¬È¡×î´ó 498 ÉÏÈ¡Õû£¬·ÀÔ½½ç·ÖÒ³£©
 
-set "GPU_FIXED_MIB=600"       REM ¼ÆËã»º³å + CUDA ÉÏÏÂÎÄ£¨²»º¬ KV£©¡£°´ UB=1024 ±ê¶¨£ºub512 Ê±Êµ²âÔ¼ 413£¬ub1024 Êµ²â +146~160 ¡ú Ô¼ 573£¬È¡ 600
+set "GPU_FIXED_MIB=600"       REM ¼ÆËã»º³å + CUDA ÉÏÏÂÎÄ£¨²»º¬ KV£©¡£°´ UB=1024 ±ê¶¨£ºub512 Ê±Êµ²âÔ¼ 413£¬ub1024 Êµ²â +146~160 ¡ú Ô¼ 573£¬È¡ 600£»3~4 GB ´ø°´Êµ²â¸²¸ÇÎª 620£¨¼û GPU_BAND_SMALL£©
+
+REM 3~4 GB ×¨ÓÃ£º620 ²»ÊÇÅÄÄÔ´ü£¬ÊÇ 2026-10-26 ÔÚ GTX 1060 3GB ÉÏÉ¨³öÀ´µÄ¡¸prefill ²»Ëú¡¹Ïß¡£
+REM ÏÖÏó£¨64K µµ£¬Í¬Ò»ÕÅ¿¨¡¢Í¬Ò»ÌáÊ¾ 12000 token¡¢Á¬Ðø²ÉÑù 350 ms£©£º
+REM   32 ²ã ¡ú ·åÖµ 2749£¬prefill 292.0 t/s£¬decode 23.24
+REM   36 ²ã ¡ú ·åÖµ 2843£¬prefill 209.5 t/s  ¡û Ëú 28%
+REM   38 ²ã ¡ú ·åÖµ 2899£¬prefill 210.2 t/s
+REM 32K µµ 40 ²ã£¨·åÖµ 2795£©ÈÔÊÇ 296.7£¬²»µô¡£¿É¼ûËúµÄ²»ÊÇ¡¸²ãÊý¡¹¶øÊÇ¡¸²ÉÑù·åÖµ > ~2760¡¹£¬
+REM ÇÒÖ»ÔÚ KV ¸ü´óµÄ 64K µµ´¥·¢£ºsampler ×¥µÄÊÇÎÈÌ¬£¬prefill µÄË²Ê±¼ÆËã»º³å»¹ÒªÔÙ¸ß 100~150£¬
+REM Ò»µ©¶¥µ½Çý¶¯¿ÉÓÃÉÏÏÞ£¨total 3072 - reserved 107£©£¬WDDM ¾ÍÓÃ¹²ÏíÄÚ´æ¶µµ×£¬prefill Ö±½ÓÑüÕ¶¡£
+REM ½áÂÛ£ºÕâ¿é¿¨µÄÕæÊµ°²È«ÏßÔ¼ 2760£¬²»ÊÇ±ê³Æ 3072¡£620 µÄÔ¤Áô¸ÕºÃÈÃ 64K ÎÈÔÚ 32 ²ã¡¢
+REM 32K ÈÔÄÜ·â¶¥ 40 ²ã£¨baseline ¡Ö 400 Ê±Êµ²â 40/40£©¡£
+REM ½ÌÑµ£º°Ñ fixed Ñ¹µ½ 380 ÊÔ¹ý£¬64K ÄÜ¶àÉÏ 6 ²ãµ« prefill ´Ó 292 µôµ½ 210£¬¾»¿÷¡£
 
 set "GPU_SAFETY_MIB=96"       REM °²È«µæ£ºÁô³öÓàÁ¿£¬Çý¶¯¾Í²»±Ø»ØÊÕ llama µÄÒ³£¨µ÷´ó¸ü±£ÏÕ¡¢¸üÂý£©
 
@@ -265,6 +277,8 @@ set "GPU_MMPROJ_MIN_GAIN=8"   REM auto Ä£Ê½ÏÂ£ºÊ¡µôÊÓ¾õËþÄÜÈÃ¿ÉÓÃ²ãÊý¶à³öÕâÃ´¶à²
 set "GPU_SLACK_MIN_MIB=512"   REM ËãÍê²ãÊýºó±ØÐëÊ£ÏÂµÄÏÔ´æÓàÁ¿£»²»×ã¾ÍÏÈÈÃÊÓ¾õËþÌÚµØ·½
 
 set "GPU_BAND_HIGH_UB=7000"   REM ¡Ý Ëü£¨8/12/14/16G ´ø£©×ß ub 2048 + compute Ô¤Ëã 900 MiB£»ÒÔÏÂ±£³Ö ub 1024 + 600£¨3~6G ÊÇ´¿ CPU Ð¶×¨¼ÒÂ·Ïß£¬Êµ²â ub 2048 ·´¶øÂý 10%£©
+
+set "GPU_BAND_SMALL=5120"     REM ¡Ü Ëü£¨3~4G ´ø£©ÓÃ 620 ¸²¸Ç¼ÆËã»º³åÔ¤Ëã£ºÊµ²âÕâ¿é¿¨µÄÕæÊµ°²È«ÏßÔ¼ 2760 MiB£¨±ê³Æ 3072 - reserved 107 - prefill Ë²Ê±¼â·å£©£¬Ñ¹µ½ 380 »áÈÃ 64K µµ¶àÉÏ 6 ²ãµ« prefill ÑüÕ¶
 
 set "GPU_VRAM_BAND_T2=11000"  REM ÏÔ´æ·Ö´øãÐÖµ£¨MiB£©£ºµÍÓÚËüËã 8G ´ø£¨8192/6144/4096/3072£©
 
@@ -301,13 +315,19 @@ REM   GPU_MOE_CACHE_MIB£º×¨¼Ò LRU ÏÔ´æ»º´æ¡£Êµ²âÊÇ¸ºÊÕÒæ£¨E=2+2 GiB£ºdecode 41.5
 REM     E=0+3 GiB£º42.0 ¡ú 39.2£©£¬Ã¿ token µÄ»º´æÃüÖÐÊ¡ÏÂµÄËãÁ¦µÖ²»¹ý PCIe °áÈ¨ÖØ¡£Ä¬ÈÏ¹Ø¡£
 set "GPU_MOE_CACHE_MIB=0"
 
-REM GPU Ä£Ê½ÏÂµÄÏß³ÌÊý¡£**ÏîÄ¿¿Ú¾¶ÊÇ 12 ºË / 24 Ïß³Ì**£ºCPU ±¾Éí¾ÍÊÇÍÆÀíµÄÒ»²¿·Ö£¬
-REM MoE ×¨¼Ò³£×¤ÄÚ´æÓÉ CPU Ëã£¬ËùÒÔÄ¬ÈÏ°Ñ 24 ÌõÏß³ÌÈ«²¿½»¸øËü£¬¶ø²»ÊÇÖ»¸øÎïÀíºË¡£
-REM È¡Éá£¨2026-10-22 Êµ²â£¬96K / E=7£©£º16 Ïß³Ì 47.0¡¢20 Ïß³Ì 45.1¡¢24 Ïß³Ì 45.4¡¢
-REM 28 Ïß³Ì 45.0¡¢32 Ïß³Ì 43.7 t/s£»24 Ïß³ÌÂÔÂý 3.5%£¬µ« CPU Õ¼ÓÃ´Ó 15.8 ºËÉýµ½ 23.5 ºË
-REM £¨ÏµÍ³ 75%£©£¬·ûºÏ¡¸CPU ¾¡¿ÉÄÜ¶àÌá¹©ËãÁ¦¡¹µÄÉè¼ÆÄ¿±ê£¬ÇÒ decode ÈÔÔ¶¸ßÓÚ 40 t/s¡£
-REM ÏëÒªÄÇ 3.5% ¿ÉÒÔ°ÑÕâÀï¸Ä³É 16£¨ÎïÀíºËÊý£©£»´¿ CPU ¶µµ×Ä£Ê½Ò²ÓÃ 24¡£
-set "GPU_THREADS=24"
+REM Ïß³ÌÊýÈ¡ÎïÀíºËÊý 16£¨9950X = 16 ºË / 32 Ïß³Ì£©£¬È«µµÎ»Í³Ò»¡£
+REM ÒÀ¾Ý£¨2026-10-22 Êµ²â£¬RTX 2070 8G / 96K / E=8£¬ÊÖ²á C ×é£©£º
+REM   16 ¡ú 47.0¡¢20 ¡ú 45.1¡¢24 ¡ú 45.4¡¢28 ¡ú 45.0¡¢32 ¡ú 43.7 t/s¡£
+REM   Ò»¹ýÎïÀíºËÊý¾Íµô 3~4%£¬Ô­ÒòÊÇ SMT ÐÖµÜ¹²ÏíÍ¬Ò»Ì× AVX-512 Ö´ÐÐµ¥Ôª£¬
+REM   µ¥ÌõÏß³ÌÍê³ÉÊ±¼ä½Ó½ü·­±¶£»¶ø ggml Ã¿¸ö¾ØÕó³Ë¶¼ÊÇ fork-join + È«¾Ö barrier£¬
+REM   ×î¿ìµÄ±ØÐëµÈ×îÂýµÄ£¬ÓÚÊÇÄÇ 8 ¸ö¡¸Ë«Ïß³ÌºË¡¹³ÉÎª¶Ì°å£¬ÁíÍâ 8 ¸öºËËãÍêÖ»ÄÜ×ÔÐý¿ÕµÈ¡£
+REM ´ËÇ°È¡ 24 µÄÀíÓÉÊÇ¡¸°Ñ CPU ¶¥µ½ 23.7 ºË¡¹£¬µ«ÄÇÊÇ¼ÙÏó£º¶à³öµÄ 8 ºËÔÚ barrier ÉÏ
+REM   Ã¦µÈ£¬ËÙ¶È·´¶øµÍ 3.5%¡£CPU Õ¼ÓÃ¸ß ¡Ù ÓÐÐ§ËãÁ¦¡£
+REM ÒÑÖª´ú¼Û£º´¿ CPU Â·Ïß£¨3~6 GB µÄ --cpu-moe£©prefill Ò²Ñ¹ÔÚ CPU ÉÏ£¬
+REM   2026-10-26 Êµ²â pp512£º16 Ïß³Ì 202.1 / 24 Ïß³Ì 213.6 / 32 Ïß³Ì 216.3£¬
+REM   ¼´ 16 Ïß³Ì¶ÁÌáÊ¾´ÊµÍÔ¼ 5.4%¡£ÈôÄ³Ì¨»úÆ÷¸ü¿´ÖØ³¤ÌáÊ¾´ÊÍÌÍÂ£¬°ÑÕâÀïºÍ
+REM   µµÎ»±íµÄ THREADS Ò»Æðµ÷»Ø 24 ¼´¿É£¨decode »á»ØÂä 3.5%£©¡£
+set "GPU_THREADS=16"
 
 set "GPU_NLAYER=40"           REM Ä£ÐÍ²ãÊý£¨GGUF block_count=40£©£¬ÓÃÀ´¸øËã³öµÄ²ãÊý·â¶¥
 
@@ -891,7 +911,7 @@ echo                  64G ÄÚ´æ ¡ú Q4_K_M ¼°ÒÔÉÏ£¬96K~192K ¿´ÏÔ´æ
 echo                  ÍÆ¼ö/recommended£º8G¡ú96K  12G/14G¡ú128K  16G ¼°ÒÔÉÏ¡ú192K
 echo   ËÙ¶È/SPEED     ¶Ì¶Ô»°Ô¼ 21~24 t/s£¬ÌîÂúºóËæ³¤¶È»º½µ / short chat ~21-24 t/s, drops as ctx fills
 echo                  Ô¼Ã¿¶àÌî 1 Ç§ token Âý 0.7 ms£»30K Ô¼ 15 t/s£¬64K ÌîÂúÔ¼ 11 t/s
-echo   Ïß³Ì/THREAD    È«²¿µµÎ»¾ùÎª 24 Ïß³Ì / 24 threads for every tier
+echo   Ïß³Ì/THREAD    È«²¿µµÎ»¾ùÎª 16 Ïß³Ì£¨ÎïÀíºË£©/ 16 threads (physical cores) for every tier
 echo   ¿ÕÏÐ/IDLE      ÎÞÈÎÎñ 2 Ð¡Ê±ºóÊÍ·ÅÄÚ´æ£¬ÏÂ´Î¶Ô»°×Ô¶¯ÖØÔØ / frees RAM after 2h idle, reloads on next request
 echo   ÊÖ²á/MANUAL    Ïê¼û/see ²ÎÊý½×ÌÝÊÖ²á_TierManual.md
 echo.
@@ -1779,19 +1799,19 @@ REM ============================================================
 
 set "CTX="
 
-if "%TIER%"=="1" ( set "CTX=32768"  & set "THREADS=24" & set "OUT=8192"  & set "TIER_NAME=¶ÌÈÎÎñµµ"   & set "NEED_GB=24" )
+if "%TIER%"=="1" ( set "CTX=32768"  & set "THREADS=16" & set "OUT=8192"  & set "TIER_NAME=¶ÌÈÎÎñµµ"   & set "NEED_GB=24" )
 
-if "%TIER%"=="2" ( set "CTX=49152"  & set "THREADS=24" & set "OUT=12288" & set "TIER_NAME=ÖÐµµ"       & set "NEED_GB=24" )
+if "%TIER%"=="2" ( set "CTX=49152"  & set "THREADS=16" & set "OUT=12288" & set "TIER_NAME=ÖÐµµ"       & set "NEED_GB=24" )
 
-if "%TIER%"=="3" ( set "CTX=65536"  & set "THREADS=24" & set "OUT=16384" & set "TIER_NAME=±ê×¼µµ"     & set "NEED_GB=24" )
+if "%TIER%"=="3" ( set "CTX=65536"  & set "THREADS=16" & set "OUT=16384" & set "TIER_NAME=±ê×¼µµ"     & set "NEED_GB=24" )
 
-if "%TIER%"=="4" ( set "CTX=98304"  & set "THREADS=24" & set "OUT=24576" & set "TIER_NAME=³¤ÎÄµµµµ"   & set "NEED_GB=25" )
+if "%TIER%"=="4" ( set "CTX=98304"  & set "THREADS=16" & set "OUT=24576" & set "TIER_NAME=³¤ÎÄµµµµ"   & set "NEED_GB=25" )
 
-if "%TIER%"=="5" ( set "CTX=131072" & set "THREADS=24" & set "OUT=32768" & set "TIER_NAME=³¬³¤µµ"     & set "NEED_GB=25" )
+if "%TIER%"=="5" ( set "CTX=131072" & set "THREADS=16" & set "OUT=32768" & set "TIER_NAME=³¬³¤µµ"     & set "NEED_GB=25" )
 
-if "%TIER%"=="6" ( set "CTX=163840" & set "THREADS=24" & set "OUT=40960" & set "TIER_NAME=³¤ÉÏÏÂÎÄµµ" & set "NEED_GB=26" )
+if "%TIER%"=="6" ( set "CTX=163840" & set "THREADS=16" & set "OUT=40960" & set "TIER_NAME=³¤ÉÏÏÂÎÄµµ" & set "NEED_GB=26" )
 
-if "%TIER%"=="7" ( set "CTX=196608" & set "THREADS=24" & set "OUT=49152" & set "TIER_NAME=¼«ÏÞµµ"     & set "NEED_GB=26" )
+if "%TIER%"=="7" ( set "CTX=196608" & set "THREADS=16" & set "OUT=49152" & set "TIER_NAME=¼«ÏÞµµ"     & set "NEED_GB=26" )
 
 exit /b 0
 
@@ -2835,6 +2855,9 @@ if %GPU_TOTAL_MIB% GEQ %GPU_BAND_HIGH_UB% set "UB=2048"
 
 if %GPU_TOTAL_MIB% GEQ %GPU_BAND_HIGH_UB% set "GPU_FIXED_MIB=900"
 
+REM 3~4 GB ´ø¸²¸Ç³ÉÊµ²âµÄ 620£¨¼ûÉÏ·½ GPU_FIXED_MIB µÄÉ¨µã¼ÇÂ¼£©¡£Ë³ÐòÍ³Ò»Îª¡¸ÏÈ´ó¿¨¡¢ºóÐ¡¿¨¡¹¡£
+if %GPU_TOTAL_MIB% LEQ %GPU_BAND_SMALL% set "GPU_FIXED_MIB=620"
+
 REM 0.3.3 ÆðÈ¡Ïû¡¸ÖÐ¶ËÏÔ´æ´øÇ¿ÖÆ q8_0 KV + ÊÓ¾õËþ³£×¤¡¹ÕâÌõ**×éºÏ**²ßÂÔ¡£ËüµÄÇ°Ìá
 REM ¡¸ÏÔ´æÔ½´ó¡¢ÉÏÏÔ´æµÄ×¨¼Ò²ãÔ½¶àÔ½»®Ëã¡¹ÔÚ 2026-10-22 ±» 8 GB ¿¨Êµ²âÍÆ·­£º7 ²ã×¨¼Ò
 REM £¨3.5 GiB£©°Ñ prefill ÐèÒªµÄÁÙÊ±»º³å¼·Ã»ÁË£¨prefill ´Ó 200 ¶à±Àµ½ 8.4 t/s£©¡£
@@ -3050,7 +3073,7 @@ set "BGA_MCACHE_ARG="
 
 if %GPU_MOE_CACHE_MIB% GTR 0 set "BGA_MCACHE_ARG=--moe-cache-mib %GPU_MOE_CACHE_MIB%"
 
-REM Ïß³ÌÊýÖ»ÔÚ¡¸ÕæµÄÉÏÁË GPU¡¹Ê±¸Ä³ÉÎïÀíºËÊý£º´ËÊ± 24 Ïß³ÌµÄ SMT ÕùÓÃ´¿ÊôÄÚºÄ¡£
+REM Ïß³ÌÊýÔÚ¡¸ÕæµÄÉÏÁË GPU¡¹Ê±¸ÄÓÃ GPU_THREADS£¨ÎïÀíºËÊý 16£©£ºSMT ÕùÓÃ´¿ÊôÄÚºÄ¡£
 REM ´¿ CPU ÍË»ØÄ£Ê½ÔÚ :BGA_SMALL ¾Í exit /b ÁË£¬×ß²»µ½ÕâÒ»ÐÐ£¬ÈÔÓÃµµÎ»±íµÄÏß³ÌÊý¡£
 set "THREADS=%GPU_THREADS%"
 

@@ -272,7 +272,19 @@ set "GPU_LAYER_MIB=40"        REM 每层「非专家权重」≈40 MiB（实测 
 
 set "GPU_EXPERT_LAYER_MIB=500" REM 每层「MoE 专家权重」≈500 MiB（Q4_K_M 实测单层 432~498 MiB，取最大 498 上取整，防越界分页）
 
-set "GPU_FIXED_MIB=600"       REM 计算缓冲 + CUDA 上下文（不含 KV）。按 UB=1024 标定：ub512 时实测约 413，ub1024 实测 +146~160 → 约 573，取 600
+set "GPU_FIXED_MIB=600"       REM 计算缓冲 + CUDA 上下文（不含 KV）。按 UB=1024 标定：ub512 时实测约 413，ub1024 实测 +146~160 → 约 573，取 600；3~4 GB 带按实测覆盖为 620（见 GPU_BAND_SMALL）
+
+REM 3~4 GB 专用：620 不是拍脑袋，是 2026-10-26 在 GTX 1060 3GB 上扫出来的「prefill 不塌」线。
+REM 现象（64K 档，同一张卡、同一提示 12000 token、连续采样 350 ms）：
+REM   32 层 → 峰值 2749，prefill 292.0 t/s，decode 23.24
+REM   36 层 → 峰值 2843，prefill 209.5 t/s  ← 塌 28%
+REM   38 层 → 峰值 2899，prefill 210.2 t/s
+REM 32K 档 40 层（峰值 2795）仍是 296.7，不掉。可见塌的不是「层数」而是「采样峰值 > ~2760」，
+REM 且只在 KV 更大的 64K 档触发：sampler 抓的是稳态，prefill 的瞬时计算缓冲还要再高 100~150，
+REM 一旦顶到驱动可用上限（total 3072 - reserved 107），WDDM 就用共享内存兜底，prefill 直接腰斩。
+REM 结论：这块卡的真实安全线约 2760，不是标称 3072。620 的预留刚好让 64K 稳在 32 层、
+REM 32K 仍能封顶 40 层（baseline ≈ 400 时实测 40/40）。
+REM 教训：把 fixed 压到 380 试过，64K 能多上 6 层但 prefill 从 292 掉到 210，净亏。
 
 set "GPU_SAFETY_MIB=96"       REM 安全垫：留出余量，驱动就不必回收 llama 的页（调大更保险、更慢）
 
@@ -283,6 +295,8 @@ set "GPU_MMPROJ_MIN_GAIN=8"   REM auto 模式下：省掉视觉塔能让可用�
 set "GPU_SLACK_MIN_MIB=512"   REM 算完层数后必须剩下的显存余量；不足就先让视觉塔腾地方
 
 set "GPU_BAND_HIGH_UB=7000"   REM ≥ 它（8/12/14/16G 带）走 ub 2048 + compute 预算 900 MiB；以下保持 ub 1024 + 600（3~6G 是纯 CPU 卸专家路线，实测 ub 2048 反而慢 10%）
+
+set "GPU_BAND_SMALL=5120"     REM ≤ 它（3~4G 带）用 620 覆盖计算缓冲预算：实测这块卡的真实安全线约 2760 MiB（标称 3072 - reserved 107 - prefill 瞬时尖峰），压到 380 会让 64K 档多上 6 层但 prefill 腰斩
 
 set "GPU_VRAM_BAND_T2=11000"  REM 显存分带阈值（MiB）：低于它算 8G 带（8192/6144/4096/3072）
 
@@ -319,13 +333,19 @@ REM   GPU_MOE_CACHE_MIB：专家 LRU 显存缓存。实测是负收益（E=2+2 G
 REM     E=0+3 GiB：42.0 → 39.2），每 token 的缓存命中省下的算力抵不过 PCIe 搬权重。默认关。
 set "GPU_MOE_CACHE_MIB=0"
 
-REM GPU 模式下的线程数。**项目口径是 12 核 / 24 线程**：CPU 本身就是推理的一部分，
-REM MoE 专家常驻内存由 CPU 算，所以默认把 24 条线程全部交给它，而不是只给物理核。
-REM 取舍（2026-10-22 实测，96K / E=7）：16 线程 47.0、20 线程 45.1、24 线程 45.4、
-REM 28 线程 45.0、32 线程 43.7 t/s；24 线程略慢 3.5%，但 CPU 占用从 15.8 核升到 23.5 核
-REM （系统 75%），符合「CPU 尽可能多提供算力」的设计目标，且 decode 仍远高于 40 t/s。
-REM 想要那 3.5% 可以把这里改成 16（物理核数）；纯 CPU 兜底模式也用 24。
-set "GPU_THREADS=24"
+REM 线程数取物理核数 16（9950X = 16 核 / 32 线程），全档位统一。
+REM 依据（2026-10-22 实测，RTX 2070 8G / 96K / E=8，手册 C 组）：
+REM   16 → 47.0、20 → 45.1、24 → 45.4、28 → 45.0、32 → 43.7 t/s。
+REM   一过物理核数就掉 3~4%，原因是 SMT 兄弟共享同一套 AVX-512 执行单元，
+REM   单条线程完成时间接近翻倍；而 ggml 每个矩阵乘都是 fork-join + 全局 barrier，
+REM   最快的必须等最慢的，于是那 8 个「双线程核」成为短板，另外 8 个核算完只能自旋空等。
+REM 此前取 24 的理由是「把 CPU 顶到 23.7 核」，但那是假象：多出的 8 核在 barrier 上
+REM   忙等，速度反而低 3.5%。CPU 占用高 ≠ 有效算力。
+REM 已知代价：纯 CPU 路线（3~6 GB 的 --cpu-moe）prefill 也压在 CPU 上，
+REM   2026-10-26 实测 pp512：16 线程 202.1 / 24 线程 213.6 / 32 线程 216.3，
+REM   即 16 线程读提示词低约 5.4%。若某台机器更看重长提示词吞吐，把这里和
+REM   档位表的 THREADS 一起调回 24 即可（decode 会回落 3.5%）。
+set "GPU_THREADS=16"
 
 set "GPU_NLAYER=40"           REM 模型层数（GGUF block_count=40），用来给算出的层数封顶
 
@@ -909,7 +929,7 @@ echo                  64G 内存 → Q4_K_M 及以上，96K~192K 看显存
 echo                  推荐/recommended：8G→96K  12G/14G→128K  16G 及以上→192K
 echo   速度/SPEED     短对话约 21~24 t/s，填满后随长度缓降 / short chat ~21-24 t/s, drops as ctx fills
 echo                  约每多填 1 千 token 慢 0.7 ms；30K 约 15 t/s，64K 填满约 11 t/s
-echo   线程/THREAD    全部档位均为 24 线程 / 24 threads for every tier
+echo   线程/THREAD    全部档位均为 16 线程（物理核）/ 16 threads (physical cores) for every tier
 echo   空闲/IDLE      无任务 2 小时后释放内存，下次对话自动重载 / frees RAM after 2h idle, reloads on next request
 echo   手册/MANUAL    详见/see 参数阶梯手册_TierManual.md
 echo.
@@ -1797,19 +1817,19 @@ REM ============================================================
 
 set "CTX="
 
-if "%TIER%"=="1" ( set "CTX=32768"  & set "THREADS=24" & set "OUT=8192"  & set "TIER_NAME=短任务档"   & set "NEED_GB=24" )
+if "%TIER%"=="1" ( set "CTX=32768"  & set "THREADS=16" & set "OUT=8192"  & set "TIER_NAME=短任务档"   & set "NEED_GB=24" )
 
-if "%TIER%"=="2" ( set "CTX=49152"  & set "THREADS=24" & set "OUT=12288" & set "TIER_NAME=中档"       & set "NEED_GB=24" )
+if "%TIER%"=="2" ( set "CTX=49152"  & set "THREADS=16" & set "OUT=12288" & set "TIER_NAME=中档"       & set "NEED_GB=24" )
 
-if "%TIER%"=="3" ( set "CTX=65536"  & set "THREADS=24" & set "OUT=16384" & set "TIER_NAME=标准档"     & set "NEED_GB=24" )
+if "%TIER%"=="3" ( set "CTX=65536"  & set "THREADS=16" & set "OUT=16384" & set "TIER_NAME=标准档"     & set "NEED_GB=24" )
 
-if "%TIER%"=="4" ( set "CTX=98304"  & set "THREADS=24" & set "OUT=24576" & set "TIER_NAME=长文档档"   & set "NEED_GB=25" )
+if "%TIER%"=="4" ( set "CTX=98304"  & set "THREADS=16" & set "OUT=24576" & set "TIER_NAME=长文档档"   & set "NEED_GB=25" )
 
-if "%TIER%"=="5" ( set "CTX=131072" & set "THREADS=24" & set "OUT=32768" & set "TIER_NAME=超长档"     & set "NEED_GB=25" )
+if "%TIER%"=="5" ( set "CTX=131072" & set "THREADS=16" & set "OUT=32768" & set "TIER_NAME=超长档"     & set "NEED_GB=25" )
 
-if "%TIER%"=="6" ( set "CTX=163840" & set "THREADS=24" & set "OUT=40960" & set "TIER_NAME=长上下文档" & set "NEED_GB=26" )
+if "%TIER%"=="6" ( set "CTX=163840" & set "THREADS=16" & set "OUT=40960" & set "TIER_NAME=长上下文档" & set "NEED_GB=26" )
 
-if "%TIER%"=="7" ( set "CTX=196608" & set "THREADS=24" & set "OUT=49152" & set "TIER_NAME=极限档"     & set "NEED_GB=26" )
+if "%TIER%"=="7" ( set "CTX=196608" & set "THREADS=16" & set "OUT=49152" & set "TIER_NAME=极限档"     & set "NEED_GB=26" )
 
 exit /b 0
 
@@ -2853,6 +2873,9 @@ if %GPU_TOTAL_MIB% GEQ %GPU_BAND_HIGH_UB% set "UB=2048"
 
 if %GPU_TOTAL_MIB% GEQ %GPU_BAND_HIGH_UB% set "GPU_FIXED_MIB=900"
 
+REM 3~4 GB 带覆盖成实测的 620（见上方 GPU_FIXED_MIB 的扫点记录）。顺序统一为「先大卡、后小卡」。
+if %GPU_TOTAL_MIB% LEQ %GPU_BAND_SMALL% set "GPU_FIXED_MIB=620"
+
 REM 0.3.3 起取消「中端显存带强制 q8_0 KV + 视觉塔常驻」这条**组合**策略。它的前提
 REM 「显存越大、上显存的专家层越多越划算」在 2026-10-22 被 8 GB 卡实测推翻：7 层专家
 REM （3.5 GiB）把 prefill 需要的临时缓冲挤没了（prefill 从 200 多崩到 8.4 t/s）。
@@ -3068,7 +3091,7 @@ set "BGA_MCACHE_ARG="
 
 if %GPU_MOE_CACHE_MIB% GTR 0 set "BGA_MCACHE_ARG=--moe-cache-mib %GPU_MOE_CACHE_MIB%"
 
-REM 线程数只在「真的上了 GPU」时改成物理核数：此时 24 线程的 SMT 争用纯属内耗。
+REM 线程数在「真的上了 GPU」时改用 GPU_THREADS（物理核数 16）：SMT 争用纯属内耗。
 REM 纯 CPU 退回模式在 :BGA_SMALL 就 exit /b 了，走不到这一行，仍用档位表的线程数。
 set "THREADS=%GPU_THREADS%"
 
