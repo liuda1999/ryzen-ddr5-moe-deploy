@@ -1,0 +1,78 @@
+# 最小静态门禁：只验证「仓库自洽」，不验证「机器能跑」。
+#
+# 为什么需要：本项目在受限网络下走 _维护脚本/push_via_api.py（Git Data API）
+# 直接更新 refs/heads/main，不经过 git push，本地 pre-push 钩子不会触发。
+# Actions 是这条链路上唯一无法被绕过的检查点。
+#
+# 为什么必须用 Windows runner：check_budget.py 会把 bat 里的预算代码抽出来，
+# 生成临时 .bat 后用 cmd /c 真跑一遍；Linux runner 没有 cmd。
+# 也不需要 GPU / 20.6 GB 模型 / CUDA——四道检查全是静态的。
+#
+# 覆盖不到的：模型加载、显存 OOM、真实 t/s、32K/64K 跑通（那些仍需上机 verify_3g.py）。
+name: 静态门禁 / Static Checks
+
+"on":  # 加引号避免 YAML 1.1 把 on 解析成布尔 True（GitHub 用 1.2，两者皆可）
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-checks:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      # 脚本会输出中文；Windows runner 默认控制台编码不是 UTF-8
+      PYTHONIOENCODING: utf-8
+
+    steps:
+      - name: 检出
+        uses: actions/checkout@v4
+        # .gitattributes 的 `* -text` 保证 GBK + CRLF 的 bat 在检出后字节保真，
+        # 否则 verify_package.py 的 SHA256 会全盘误报。
+
+      - name: 准备 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: bat 编码与语法（GBK / 括号 / 重定向）
+        run: python _维护脚本/check_bat.py
+
+      - name: 显存预算矩阵（8 卡 × 7 档，防负层数 / 除零 / 参数不一致）
+        run: python _维护脚本/check_budget.py
+
+      - name: 文档格式（~ 转义 / 代码围栏 / 文件引用）
+        run: python _维护脚本/check_docs.py
+
+      - name: 分发清单完整性（精确字节 + SHA256）
+        run: python _维护脚本/verify_package.py
+
+      - name: bat 与生成器一致（禁止手改生成的 bat）
+        shell: pwsh
+        run: |
+          $tmp = Join-Path $env:RUNNER_TEMP "gen_check"
+          New-Item -ItemType Directory -Force -Path (Join-Path $tmp "_维护脚本") | Out-Null
+          Copy-Item "_维护脚本/gen_toggle.py" (Join-Path $tmp "_维护脚本/gen_toggle.py")
+          python (Join-Path $tmp "_维护脚本/gen_toggle.py")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $a = (Get-FileHash "启动大模型_StartModel.bat" -Algorithm SHA256).Hash
+          $b = (Get-FileHash (Join-Path $tmp "启动大模型_StartModel.bat") -Algorithm SHA256).Hash
+          if ($a -ne $b) {
+            Write-Error "启动大模型_StartModel.bat 与 gen_toggle.py 的输出不一致：请改生成器后重新生成，不要手改 bat"
+            exit 1
+          }
+          "生成器一致：$a"
+
+      - name: 禁止密钥 / 模型 / 压缩包入库
+        shell: pwsh
+        run: |
+          $bad = git ls-files | Select-String -Pattern '(^|/)api-key\.txt$|\.gguf$|\.zip$|\.7z$'
+          if ($bad) {
+            $bad
+            Write-Error "检测到不应入库的文件"
+            exit 1
+          }
+          "无敏感文件入库"
