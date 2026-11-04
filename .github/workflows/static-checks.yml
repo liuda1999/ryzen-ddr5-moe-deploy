@@ -6,7 +6,11 @@
 #
 # 为什么必须用 Windows runner：check_budget.py 会把 bat 里的预算代码抽出来，
 # 生成临时 .bat 后用 cmd /c 真跑一遍；Linux runner 没有 cmd。
-# 也不需要 GPU / 20.6 GB 模型 / CUDA——四道检查全是静态的。
+# 也不需要 GPU / 20.6 GB 模型 / CUDA——这里只跑不需要模型文件的检查。
+#
+# 注意：verify_package.py 不进 CI。它会把 Q4_K_M.gguf / mmproj 列为待校验条目，
+# 只有装好模型的目标机才能通过；在全新 checkout 上必然报「缺失 2」。
+# 发版前请在本机手动跑它。
 #
 # 覆盖不到的：模型加载、显存 OOM、真实 t/s、32K/64K 跑通（那些仍需上机 verify_3g.py）。
 name: 静态门禁 / Static Checks
@@ -46,9 +50,6 @@ jobs:
 
       - name: 文档格式（~ 转义 / 代码围栏 / 文件引用）
         run: python _维护脚本/check_docs.py
-
-      - name: 分发清单完整性（精确字节 + SHA256）
-        run: python _维护脚本/verify_package.py
 
       - name: bat 与生成器一致（禁止手改生成的 bat）
         shell: pwsh
