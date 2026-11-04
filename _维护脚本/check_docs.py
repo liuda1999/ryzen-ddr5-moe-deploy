@@ -50,15 +50,18 @@ IGNORE_NAMES = {
 
 
 def md_files():
-    out = subprocess.run(["git", "ls-files", "*.md"], cwd=ROOT,
-                         capture_output=True).stdout.decode("utf-8").splitlines()
-    return [f for f in out if not f.startswith(SKIP)]
+    # 必须用 -z：git 默认 core.quotepath=true，中文路径会被 C 风格转义成
+    # "GPU-\346\267...md"，open() 会直接抛 OSError。本机 core.quotepath=false
+    # 只是本地配置（不随仓库分发），CI / 新克隆一律踩坑。
+    out = subprocess.run(["git", "ls-files", "-z", "*.md"], cwd=ROOT,
+                         capture_output=True).stdout.decode("utf-8").split("\0")
+    return [f for f in out if f and not f.startswith(SKIP)]
 
 
 def all_repo_files():
-    out = subprocess.run(["git", "ls-files"], cwd=ROOT,
-                         capture_output=True).stdout.decode("utf-8").splitlines()
-    return set(os.path.basename(x) for x in out)
+    out = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT,
+                         capture_output=True).stdout.decode("utf-8").split("\0")
+    return set(os.path.basename(x) for x in out if x)
 
 
 def strip_code(text):
