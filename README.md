@@ -24,7 +24,7 @@
 [![Hardware](https://img.shields.io/badge/hardware-Ryzen%20%2B%20DDR5-red)](#二原理与调优结论)
 [![Backend](https://img.shields.io/badge/backend-llama.cpp%20CUDA%2FCPU-green)](https://github.com/ggml-org/llama.cpp)
 [![Goal](https://img.shields.io/badge/goal-40%2B%20token%2Fs-success)](#六档位速查)
-[![Release](https://img.shields.io/badge/release-0.3.9-orange)](../../releases)
+[![Release](https://img.shields.io/badge/release-0.3.10-orange)](../../releases)
 [![License](https://img.shields.io/badge/license-%E9%9D%9E%E5%95%86%E4%B8%9A%E6%8E%88%E6%9D%83%20%7C%20Non--Commercial-d43f3f)](LICENSE)
 
 > **授权声明 / License**：源码公开，可自由阅读、修改并用于**个人与非商业**用途；
@@ -33,7 +33,7 @@
 
 ---
 
-> **版本变更 / Release notes**：每个版本改了什么（0.1.0 → 0.3.9）都写在
+> **版本变更 / Release notes**：每个版本改了什么（0.1.0 → 0.3.10）都写在
 > [`Releases`](../../releases) 里；本文只讲**当前版本怎么用、为什么这么设计**。
 
 ---
