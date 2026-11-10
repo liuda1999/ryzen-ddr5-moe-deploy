@@ -8,9 +8,10 @@
 # 生成临时 .bat 后用 cmd /c 真跑一遍；Linux runner 没有 cmd。
 # 也不需要 GPU / 20.6 GB 模型 / CUDA——这里只跑不需要模型文件的检查。
 #
-# 注意：verify_package.py 不进 CI。它会把 Q4_K_M.gguf / mmproj 列为待校验条目，
-# 只有装好模型的目标机才能通过；在全新 checkout 上必然报「缺失 2」。
-# 发版前请在本机手动跑它。
+# 注意：verify_package.py 不直接进 CI（它是目标机工具，允许模型缺失）。
+# 改由 check_manifest.py 在 CI 里把关：清单模型字节数与官方值 / 启动脚本 /
+# 下载文档一致、清单无重复条目，以及所有随包文件的大小与 SHA256。
+# 发版前仍请在本机手动跑一次 verify_package.py。
 #
 # 覆盖不到的：模型加载、显存 OOM、真实 t/s、32K/64K 跑通（那些仍需上机 verify_3g.py）。
 name: 静态门禁 / Static Checks
@@ -35,7 +36,7 @@ jobs:
       - name: 检出
         uses: actions/checkout@v4
         # .gitattributes 的 `* -text` 保证 GBK + CRLF 的 bat 在检出后字节保真，
-        # 否则 verify_package.py 的 SHA256 会全盘误报。
+        # 否则 check_manifest.py 的 SHA256 会全盘误报。
 
       - name: 准备 Python
         uses: actions/setup-python@v5
@@ -50,6 +51,9 @@ jobs:
 
       - name: 文档格式（~ 转义 / 代码围栏 / 文件引用）
         run: python _维护脚本/check_docs.py
+
+      - name: 清单一致性（模型字节数 / 随包文件哈希）
+        run: python _维护脚本/check_manifest.py
 
       - name: bat 与生成器一致（禁止手改生成的 bat）
         shell: pwsh
